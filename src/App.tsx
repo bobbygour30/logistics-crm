@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Ticket } from './lib/types'; // Updated path if you renamed supabase.ts → types.ts
+import { Ticket } from './lib/types';
 import { Header } from './components/Header';
 import { StatsOverview } from './components/StatsOverview';
 import { FilterBar } from './components/FilterBar';
@@ -8,18 +8,19 @@ import { CreateTicketModal } from './components/CreateTicketModal';
 import { TicketDetailModal } from './components/TicketDetailModal';
 import { IVRCallModal } from './components/IVRCallModal';
 import { APIIntegrationGuide } from './components/APIIntegrationGuide';
-import { Settings } from 'lucide-react';
+import { ConsignmentTracking } from './components/ConsignmentTracking';
+import { GenerateBooking } from './components/GenerateBooking';
+import { Settings, Truck, FileText } from 'lucide-react';
 
 function App() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'working' | 'closed' | 'satisfied'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showIVRModal, setShowIVRModal] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'api'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'api' | 'tracking' | 'booking'>('dashboard');
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -31,16 +32,11 @@ function App() {
     satisfied: tickets.filter((t) => t.status === 'satisfied').length,
   };
 
-  // NEW: Load tickets from your MongoDB backend
   const loadTickets = async () => {
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/tickets`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tickets: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
       const data = await response.json();
       setTickets(data.tickets || []);
     } catch (err: any) {
@@ -56,31 +52,20 @@ function App() {
     loadTickets();
   }, []);
 
-  useEffect(() => {
-    filterTickets();
-  }, [tickets, statusFilter, searchQuery]);
-
-  const filterTickets = () => {
-    let filtered = [...tickets];
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((t) => t.status === statusFilter);
-    }
-
-    if (searchQuery.trim()) {
+  // Filtered tickets based on both status and search
+  const filteredTickets = tickets
+    .filter((t) => statusFilter === 'all' || t.status === statusFilter)
+    .filter((t) => {
+      if (!searchQuery.trim()) return true;
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (t) =>
-          t.ticket_number.toLowerCase().includes(query) ||
-          t.title.toLowerCase().includes(query) ||
-          t.customers?.name?.toLowerCase().includes(query) ||
-          t.customers?.company_name?.toLowerCase().includes(query) ||
-          t.tracking_number?.toLowerCase().includes(query)
+      return (
+        t.ticket_number.toLowerCase().includes(query) ||
+        t.title.toLowerCase().includes(query) ||
+        t.customers?.name?.toLowerCase().includes(query) ||
+        t.customers?.company_name?.toLowerCase().includes(query) ||
+        t.tracking_number?.toLowerCase().includes(query)
       );
-    }
-
-    setFilteredTickets(filtered);
-  };
+    });
 
   if (loading) {
     return (
@@ -102,10 +87,10 @@ function App() {
 
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8">
+          <nav className="flex space-x-8 overflow-x-auto">
             <button
               onClick={() => setCurrentView('dashboard')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                 currentView === 'dashboard'
                   ? 'border-amber-600 text-amber-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -114,8 +99,30 @@ function App() {
               Dashboard
             </button>
             <button
+              onClick={() => setCurrentView('tracking')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center space-x-2 whitespace-nowrap ${
+                currentView === 'tracking'
+                  ? 'border-amber-600 text-amber-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Truck className="w-4 h-4" />
+              <span>Consignment Tracking</span>
+            </button>
+            <button
+              onClick={() => setCurrentView('booking')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center space-x-2 whitespace-nowrap ${
+                currentView === 'booking'
+                  ? 'border-amber-600 text-amber-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Generate Booking</span>
+            </button>
+            <button
               onClick={() => setCurrentView('api')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center space-x-2 ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center space-x-2 whitespace-nowrap ${
                 currentView === 'api'
                   ? 'border-amber-600 text-amber-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -131,7 +138,7 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {currentView === 'dashboard' ? (
           <>
-            <StatsOverview stats={stats} />
+            <StatsOverview stats={stats} onStatusClick={setStatusFilter} />
 
             <FilterBar
               statusFilter={statusFilter}
@@ -142,6 +149,10 @@ function App() {
 
             <TicketList tickets={filteredTickets} onTicketClick={setSelectedTicket} />
           </>
+        ) : currentView === 'tracking' ? (
+          <ConsignmentTracking />
+        ) : currentView === 'booking' ? (
+          <GenerateBooking />
         ) : (
           <APIIntegrationGuide />
         )}
@@ -151,7 +162,7 @@ function App() {
         <CreateTicketModal
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
-            loadTickets(); // This will now use the new API
+            loadTickets();
             setShowCreateModal(false);
           }}
         />
@@ -160,9 +171,7 @@ function App() {
       {showIVRModal && (
         <IVRCallModal
           onClose={() => setShowIVRModal(false)}
-          onSuccess={() => {
-            setShowIVRModal(false);
-          }}
+          onSuccess={() => setShowIVRModal(false)}
         />
       )}
 
