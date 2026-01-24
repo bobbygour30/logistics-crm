@@ -1,6 +1,12 @@
 import { useState } from 'react';
-import { Search, Truck, Calendar } from 'lucide-react';
+import { Search, Truck, Calendar, Package } from 'lucide-react';
 
+/* ---------- helpers ---------- */
+const Val = ({ v }: { v: any }) => (
+  <span className="text-gray-800">{v ?? '—'}</span>
+);
+
+/* ---------- component ---------- */
 export function ConsignmentTracking() {
   const [clientId, setClientId] = useState('');
   const [grNo, setGrNo] = useState('');
@@ -9,115 +15,121 @@ export function ConsignmentTracking() {
   const [data, setData] = useState<any>(null);
 
   const handleFetch = async () => {
+    if (!clientId || !grNo) {
+      setError('Client ID and GR No are required');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setData(null);
 
     try {
-      const response = await fetch(`https://greentrans.in:444/api/Tracking/GRTracking?ClientId=${clientId}&GRNo=${grNo}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      const res = await fetch(
+        `https://greentrans.in:444/api/Tracking/GRTracking?ClientId=${clientId}&GRNo=${grNo}`,
+        { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+      );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
+      const result = await res.json();
 
-      const result = await response.json();
       if (result.status !== '1') {
-        throw new Error(result.message || 'API error');
+        throw new Error(result.message || 'Tracking failed');
       }
 
       setData(result);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Fetch failed');
     } finally {
       setLoading(false);
     }
   };
 
+  const d = data?.consignmentdetail;
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-        <Truck className="w-6 h-6 text-blue-600" />
+    <div className="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow">
+      {/* Header */}
+      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+        <Truck className="text-blue-600" />
         Consignment Tracking
       </h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Client ID *</label>
-          <input
-            type="text"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            placeholder="Your Client ID"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">GR No *</label>
-          <input
-            type="text"
-            value={grNo}
-            onChange={(e) => setGrNo(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            placeholder="e.g., 149358"
-            required
-          />
-        </div>
+      {/* Inputs */}
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <input
+          placeholder="Client ID"
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          className="border px-4 py-2 rounded"
+        />
+        <input
+          placeholder="GR No"
+          value={grNo}
+          onChange={(e) => setGrNo(e.target.value)}
+          className="border px-4 py-2 rounded"
+        />
       </div>
 
       <button
         onClick={handleFetch}
-        disabled={loading || !clientId || !grNo}
-        className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+        disabled={loading}
+        className="w-full bg-blue-600 text-white py-2 rounded flex justify-center gap-2"
       >
-        <Search className="w-4 h-4" />
-        {loading ? 'Fetching...' : 'Track Consignment'}
+        <Search size={18} />
+        {loading ? 'Fetching…' : 'Track'}
       </button>
 
       {error && <p className="mt-4 text-red-600">{error}</p>}
 
+      {/* DATA */}
       {data && (
         <div className="mt-6 space-y-6">
           {/* Consignment Details */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold mb-2">Consignment Details</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-              <p><strong>GR No:</strong> {data.consignmentdetail.grno}</p>
-              <p><strong>GR Date:</strong> {data.consignmentdetail.grdt}</p>
-              <p><strong>GR Type:</strong> {data.consignmentdetail.grtype}</p>
-              <p><strong>Customer Name:</strong> {data.consignmentdetail.custname}</p>
-              <p><strong>Origin:</strong> {data.consignmentdetail.origin}</p>
-              <p><strong>Destination:</strong> {data.consignmentdetail.destname}</p>
-              <p><strong>Consignor:</strong> {data.consignmentdetail.cngr}</p>
-              <p><strong>Consignee:</strong> {data.consignmentdetail.cnge}</p>
-              <p><strong>Packages:</strong> {data.consignmentdetail.pckgs}</p>
-              <p><strong>Charged Weight:</strong> {data.consignmentdetail.cweight}</p>
-              <p><strong>Goods:</strong> {data.consignmentdetail.goods}</p>
-              <p><strong>Packing:</strong> {data.consignmentdetail.packing}</p>
-              <p><strong>E-Way Bill No:</strong> {data.consignmentdetail.ewaybillno || 'N/A'}</p>
-              <p><strong>Invoice No:</strong> {data.consignmentdetail.invoiceno || 'N/A'}</p>
+          <div className="bg-gray-50 p-4 rounded">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <Package className="text-green-600" />
+              Consignment Details
+            </h3>
+
+            <div className="grid md:grid-cols-2 gap-2 text-sm">
+              <p><strong>GR No:</strong> <Val v={d.grno} /></p>
+              <p><strong>GR Date:</strong> <Val v={d.grdt} /></p>
+              <p><strong>GR Type:</strong> <Val v={d.grtype} /></p>
+              <p><strong>Origin:</strong> <Val v={d.origin} /></p>
+              <p><strong>Destination:</strong> <Val v={d.destname} /></p>
+              <p><strong>Consignor:</strong> <Val v={d.cngr} /></p>
+              <p><strong>Consignee:</strong> <Val v={d.cnge} /></p>
+              <p><strong>Packages:</strong> <Val v={d.pckgs} /></p>
+              <p><strong>Actual Weight:</strong> <Val v={d.aweight} /></p>
+              <p><strong>Charged Weight:</strong> <Val v={d.cweight} /></p>
+              <p><strong>Goods:</strong> <Val v={d.goods} /></p>
+              <p><strong>Packing:</strong> <Val v={d.packing} /></p>
+              <p><strong>E-Way Bill:</strong> <Val v={d.ewaybillno} /></p>
+              <p><strong>Invoice No:</strong> <Val v={d.invoiceno} /></p>
+              <p><strong>Invoice Date:</strong> <Val v={d.invoicedt} /></p>
+              <p><strong>Invoice Value:</strong> <Val v={d.invoicevalue} /></p>
+              <p><strong>Delivered:</strong> <Val v={d.delivered} /></p>
+              <p><strong>Expected Delivery:</strong> <Val v={d.expecteddeliverydt} /></p>
             </div>
           </div>
 
-          {/* Activity List - Timeline */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-green-600" />
+          {/* Timeline */}
+          <div className="bg-gray-50 p-4 rounded">
+            <h3 className="font-semibold mb-4 flex items-center gap-2">
+              <Calendar className="text-purple-600" />
               Activity Timeline
             </h3>
+
             <div className="space-y-4">
-              {data.consignmentactivitylist.map((activity: any, index: number) => (
-                <div key={index} className="relative pl-8 pb-4 border-l-2 border-green-500">
-                  <div className="absolute left-[-7px] top-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                  <p className="font-medium">{activity.activity}</p>
-                  <p className="text-sm text-gray-600">{activity.date}</p>
-                  <p className="text-sm">{activity.details}</p>
-                  <p className="text-xs text-gray-500">From: {activity.fromstation} to {activity.tostation}</p>
+              {data.consignmentactivitylist.map((a: any, i: number) => (
+                <div key={i} className="border-l-2 border-blue-500 pl-4 relative">
+                  <div className="absolute -left-2 top-1 w-3 h-3 bg-blue-500 rounded-full" />
+                  <p className="font-medium">{a.activity}</p>
+                  <p className="text-sm text-gray-600">{a.date}</p>
+                  <p className="text-sm">{a.details}</p>
+                  <p className="text-xs text-gray-500">
+                    Document: {a.documentno ?? '—'}
+                  </p>
                 </div>
               ))}
             </div>
