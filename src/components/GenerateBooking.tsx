@@ -103,7 +103,7 @@ export function GenerateBooking() {
 
     try {
       const res = await fetch(
-        `http://localhost:3000/api/greentrans/booking?grno=${encodeURIComponent(grNo)}`
+        `https://backend-logistics-eta.vercel.app/api/greentrans/booking?grno=${encodeURIComponent(grNo)}`
       );
 
       const result = await res.json();
