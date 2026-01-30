@@ -1,3 +1,4 @@
+// src/components/TicketDetailModal.tsx
 import { useState, useEffect } from 'react';
 import { X, Calendar, User, Package, MessageSquare } from 'lucide-react';
 import { Ticket, Agent, TicketComment } from '../lib/types';
@@ -24,6 +25,8 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
 
   useEffect(() => {
     loadAgentsAndComments();
+    const interval = setInterval(loadAgentsAndComments, 30000); // Auto-refresh
+    return () => clearInterval(interval);
   }, [ticket.id]);
 
   const loadAgentsAndComments = async () => {
@@ -229,6 +232,24 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{ticket.description}</p>
                 </div>
               )}
+
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-900 mb-2">Consignment Context</h3>
+                <p><strong>GR Date:</strong> {ticket.gr_date || '—'}</p>
+                <p><strong>Origin:</strong> {ticket.origin || '—'}</p>
+                <p><strong>Destination:</strong> {ticket.destination || '—'}</p>
+                <p><strong>Mode Type:</strong> {ticket.mode_type || '—'}</p>
+                <p><strong>Packages:</strong> {ticket.packages || '—'}</p>
+                <p><strong>Last Movement:</strong> {ticket.last_movement_date ? new Date(ticket.last_movement_date).toLocaleString() : '—'}</p>
+                <p><strong>Location:</strong> {ticket.last_known_location || '—'}</p>
+              </div>
+
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-900 mb-2">Delay Details</h3>
+                <p><strong>Delay Start:</strong> {ticket.delay_start_time ? new Date(ticket.delay_start_time).toLocaleString() : '—'}</p>
+                <p><strong>Duration:</strong> {ticket.delay_duration_minutes || '—'} mins</p>
+                <p><strong>SLA Breached:</strong> {ticket.sla_breached ? 'Yes' : 'No'}</p>
+              </div>
             </div>
           </div>
 

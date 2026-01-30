@@ -1,3 +1,4 @@
+// src/components/ConsignmentTracking.tsx
 import { useState } from 'react';
 import { Search, Truck, Calendar, Package } from 'lucide-react';
 
@@ -26,7 +27,7 @@ export function ConsignmentTracking() {
 
     try {
       const res = await fetch(
-        `https://greentrans.in:444/api/Tracking/GRTracking?ClientId=${clientId}&GRNo=${grNo}`,
+        `http://localhost:3000/api/greentrans/tracking?clientId=${clientId}&grNo=${grNo}`,
         { method: 'GET', headers: { 'Content-Type': 'application/json' } }
       );
 
@@ -41,6 +42,28 @@ export function ConsignmentTracking() {
       setError(err.message || 'Fetch failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddToSystem = async () => {
+    if (!data) return;
+
+    try {
+      const saveRes = await fetch('http://localhost:3000/api/consignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          GRNo: grNo,
+          bookingData: {}, // Fetch if needed
+          trackingData: data,
+        }),
+      });
+
+      if (!saveRes.ok) throw new Error('Failed to add');
+
+      alert('Added to tracking system!');
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -134,6 +157,14 @@ export function ConsignmentTracking() {
               ))}
             </div>
           </div>
+
+          {/* Add to System Button */}
+          <button
+            onClick={handleAddToSystem}
+            className="w-full bg-green-600 text-white py-2 rounded mt-4"
+          >
+            Add to Tracking System
+          </button>
         </div>
       )}
     </div>

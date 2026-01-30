@@ -1,3 +1,4 @@
+// src/App.tsx
 import { useState, useEffect } from 'react';
 import { Ticket } from './lib/types';
 import { Header } from './components/Header';
@@ -53,19 +54,19 @@ function App() {
   }, []);
 
   // Filtered tickets based on both status and search
-  const filteredTickets = tickets
-    .filter((t) => statusFilter === 'all' || t.status === statusFilter)
-    .filter((t) => {
-      if (!searchQuery.trim()) return true;
-      const query = searchQuery.toLowerCase();
-      return (
-        t.ticket_number.toLowerCase().includes(query) ||
-        t.title.toLowerCase().includes(query) ||
-        t.customers?.name?.toLowerCase().includes(query) ||
-        t.customers?.company_name?.toLowerCase().includes(query) ||
-        t.tracking_number?.toLowerCase().includes(query)
-      );
-    });
+  // const filteredTickets = tickets
+  //   .filter((t) => statusFilter === 'all' || t.status === statusFilter)
+  //   .filter((t) => {
+  //     if (!searchQuery.trim()) return true;
+  //     const query = searchQuery.toLowerCase();
+  //     return (
+  //       t.ticket_number.toLowerCase().includes(query) ||
+  //       t.title.toLowerCase().includes(query) ||
+  //       t.customers?.name?.toLowerCase().includes(query) ||
+  //       t.customers?.company_name?.toLowerCase().includes(query) ||
+  //       t.tracking_number?.toLowerCase().includes(query)
+  //     );
+  //   });
 
   if (loading) {
     return (
@@ -147,7 +148,8 @@ function App() {
               onSearchChange={setSearchQuery}
             />
 
-            <TicketList tickets={filteredTickets} onTicketClick={setSelectedTicket} />
+            {/* FIXED: No more tickets prop — TicketList fetches its own data */}
+            <TicketList onTicketClick={setSelectedTicket} />
           </>
         ) : currentView === 'tracking' ? (
           <ConsignmentTracking />

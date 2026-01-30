@@ -1,8 +1,9 @@
+// src/components/TicketList.tsx
+import { useState, useEffect } from 'react';
 import { Ticket } from '../lib/types';
 import { Calendar, User, AlertCircle } from 'lucide-react';
 
 type TicketListProps = {
-  tickets: Ticket[];
   onTicketClick: (ticket: Ticket) => void;
 };
 
@@ -28,7 +29,35 @@ const typeLabels: Record<string, string> = {
   other: 'Other',
 };
 
-export function TicketList({ tickets, onTicketClick }: TicketListProps) {
+export function TicketList({ onTicketClick }: TicketListProps) {
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTickets = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch('http://localhost:3000/api/tickets');
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+      const data = await res.json();
+      setTickets(data.tickets || []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load tickets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTickets();
+    const interval = setInterval(fetchTickets, 30000); // Auto-refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) return <div className="p-4">Loading tickets...</div>;
+  if (error) return <div className="p-4 text-red-600">Error: {error}</div>;
+
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="overflow-x-auto">
@@ -40,6 +69,9 @@ export function TicketList({ tickets, onTicketClick }: TicketListProps) {
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Title
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Tracking No
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Customer
@@ -76,21 +108,29 @@ export function TicketList({ tickets, onTicketClick }: TicketListProps) {
                 </td>
                 <td className="px-6 py-4">
                   <div className="text-sm font-medium text-gray-900">{ticket.title}</div>
-                  {ticket.tracking_number && (
-                    <div className="text-xs text-gray-500">Tracking: {ticket.tracking_number}</div>
+                  {ticket.description && (
+                    <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                      {ticket.description}
+                    </div>
                   )}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">
+                  {ticket.tracking_number || '—'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-900">{ticket.customers?.name || 'N/A'}</div>
                   <div className="text-xs text-gray-500">{ticket.customers?.phone || ''}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="text-sm text-gray-700">{typeLabels[ticket.type] || ticket.type}</span>
+                  <span className="text-sm text-gray-700">
+                    {typeLabels[ticket.type] || ticket.type}
+                  </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
                     className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      priorityColors[ticket.priority as keyof typeof priorityColors] || 'bg-gray-100 text-gray-800'
+                      priorityColors[ticket.priority as keyof typeof priorityColors] ||
+                      'bg-gray-100 text-gray-800'
                     }`}
                   >
                     {ticket.priority}
@@ -99,7 +139,8 @@ export function TicketList({ tickets, onTicketClick }: TicketListProps) {
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
                     className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      statusColors[ticket.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'
+                      statusColors[ticket.status as keyof typeof statusColors] ||
+                      'bg-gray-100 text-gray-800'
                     }`}
                   >
                     {ticket.status}
@@ -122,6 +163,7 @@ export function TicketList({ tickets, onTicketClick }: TicketListProps) {
           </tbody>
         </table>
       </div>
+
       {tickets.length === 0 && (
         <div className="text-center py-12">
           <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />

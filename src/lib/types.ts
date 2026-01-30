@@ -1,3 +1,4 @@
+// src/lib/types.ts
 export type Customer = {
   id: string;
   name: string;
@@ -34,6 +35,30 @@ export type Ticket = {
   closed_at: string | null;
   customers?: Customer;
   agents?: Agent;
+  gr_date?: string;
+  origin?: string;
+  destination?: string;
+  current_status?: string;
+  last_movement_date?: string;
+  last_known_location?: string;
+  packages?: number;
+  mode_type?: string;
+  consignor_name?: string;
+  consignee_name?: string;
+  consignee_city?: string;
+  consignee_mobile?: string;
+  delay_start_time?: string;
+  delay_duration_minutes?: number;
+  last_escalated_at?: string;
+  sla_breached?: boolean;
+  assigned_team?: string;
+  assigned_user?: string;
+  notes?: string;
+  resolved_at?: string;
+  resolution_reason?: string;
+  closed_by?: string;
+  closed_source?: string | null;
+  created_by?: string;
 };
 
 export type IVRCall = {

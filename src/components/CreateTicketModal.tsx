@@ -1,3 +1,4 @@
+// src/components/CreateTicketModal.tsx
 import { useState } from 'react';
 import { X } from 'lucide-react';
 
@@ -22,6 +23,24 @@ export function CreateTicketModal({ onClose, onSuccess }: CreateTicketModalProps
     tracking_number: '',
     source: 'api',
   });
+
+  const handlePrefillFromGR = async () => {
+    if (!formData.tracking_number.trim()) return;
+
+    try {
+      const res = await fetch(`http://localhost:3000/api/consignments/${formData.tracking_number}`);
+      if (!res.ok) throw new Error('GR not found');
+      const cons = await res.json();
+      setFormData(prev => ({
+        ...prev,
+        customer_name: cons.consigneeName || '',
+        customer_phone: cons.consigneeMobile || '',
+        customer_address: cons.consigneeCity || '',
+      }));
+    } catch (err: any) {
+      alert('Failed to prefill: ' + err.message);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,6 +220,11 @@ export function CreateTicketModal({ onClose, onSuccess }: CreateTicketModalProps
               />
             </div>
           </div>
+          {formData.tracking_number && (
+            <button type="button" onClick={handlePrefillFromGR} className="mt-2 px-4 py-1 bg-blue-100 text-blue-700 rounded">
+              Prefill from GR
+            </button>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t">
             <button
