@@ -14,6 +14,7 @@ export function ConsignmentTracking() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
+  const [trackedGRs, setTrackedGRs] = useState<string[]>([]);  // New state for tracked GRs
 
   const handleFetch = async () => {
     if (!clientId || !grNo) {
@@ -62,6 +63,7 @@ export function ConsignmentTracking() {
       if (!saveRes.ok) throw new Error('Failed to add');
 
       alert('Added to tracking system!');
+      setTrackedGRs(prev => [...prev, grNo]);  // Add to local list
     } catch (err: any) {
       setError(err.message);
     }
@@ -165,6 +167,20 @@ export function ConsignmentTracking() {
           >
             Add to Tracking System
           </button>
+        </div>
+      )}
+
+      {/* Tracked GR List */}
+      {trackedGRs.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-xl font-bold mb-4">Tracked GRs</h3>
+          <ul className="space-y-2">
+            {trackedGRs.map((gr) => (
+              <li key={gr} className="bg-white p-3 rounded shadow">
+                {gr} - Tracking started
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

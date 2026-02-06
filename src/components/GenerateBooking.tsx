@@ -90,6 +90,7 @@ export function GenerateBooking() {
   const [tracking, setTracking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<BookingFormData | null>(null);
+  const [trackedGRs, setTrackedGRs] = useState<string[]>([]);  // New state for tracked GRs
 
   /* -------------------- Fetch Booking -------------------- */
 
@@ -161,6 +162,7 @@ export function GenerateBooking() {
       }
 
       alert('Consignment added to tracking system! Delay checks are now active.');
+      setTrackedGRs(prev => [...prev, data.GRNo]);  // Add to local list
     } catch (err: any) {
       setError(err.message || 'Failed to start tracking');
     } finally {
@@ -286,6 +288,20 @@ export function GenerateBooking() {
               {tracking ? 'Adding to tracking...' : 'Start Tracking This GR'}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Tracked GR List */}
+      {trackedGRs.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-xl font-bold mb-4">Tracked GRs</h3>
+          <ul className="space-y-2">
+            {trackedGRs.map((gr) => (
+              <li key={gr} className="bg-white p-3 rounded shadow">
+                {gr} - Tracking started
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

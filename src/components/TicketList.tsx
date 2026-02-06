@@ -51,7 +51,7 @@ export function TicketList({ onTicketClick }: TicketListProps) {
 
   useEffect(() => {
     fetchTickets();
-    const interval = setInterval(fetchTickets, 30000); // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchTickets, 30000); // Auto-refresh every 30s
     return () => clearInterval(interval);
   }, []);
 
