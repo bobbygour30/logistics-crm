@@ -7,6 +7,7 @@ type CreateTicketModalProps = {
   onSuccess: () => void;
 };
 
+const API_URL = import.meta.env.VITE_API_URL;
 export function CreateTicketModal({ onClose, onSuccess }: CreateTicketModalProps) {
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +29,7 @@ export function CreateTicketModal({ onClose, onSuccess }: CreateTicketModalProps
     if (!formData.tracking_number.trim()) return;
 
     try {
-      const res = await fetch(`http://localhost:3000/api/consignments/${formData.tracking_number}`);
+      const res = await fetch(`${API_URL}/api/consignments/${formData.tracking_number}`);
       if (!res.ok) throw new Error('GR not found');
       const cons = await res.json();
       setFormData(prev => ({

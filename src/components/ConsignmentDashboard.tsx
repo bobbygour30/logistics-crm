@@ -28,6 +28,8 @@ interface Notification {
   read: boolean;
 }
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function ConsignmentDashboard() {
   const [consignments, setConsignments] = useState<Consignment[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -40,7 +42,7 @@ export default function ConsignmentDashboard() {
       setError(null);
 
       // 1. Fetch consignments
-      const consRes = await fetch('http://localhost:3000/api/consignments');
+      const consRes = await fetch(`${API_URL}/api/consignments`);
       if (!consRes.ok) {
         throw new Error(`Failed to fetch consignments: ${consRes.status}`);
       }
@@ -48,7 +50,7 @@ export default function ConsignmentDashboard() {
       setConsignments(consData.consignments || []);
 
       // 2. Fetch notifications
-      const notifRes = await fetch('http://localhost:3000/api/notifications');
+      const notifRes = await fetch(`${API_URL}/api/notifications`);
       if (!notifRes.ok) {
         throw new Error(`Failed to fetch notifications: ${notifRes.status}`);
       }

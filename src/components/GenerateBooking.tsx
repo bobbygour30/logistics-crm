@@ -82,6 +82,7 @@ function Detail({ label, value }: { label: string; value: any }) {
   );
 }
 
+const API_URL = import.meta.env.VITE_API_URL;
 /* -------------------- Component -------------------- */
 
 export function GenerateBooking() {
@@ -106,7 +107,7 @@ export function GenerateBooking() {
 
     try {
       const res = await fetch(
-        `http://localhost:3000/api/greentrans/booking?grno=${encodeURIComponent(grNo.trim())}`
+        `${API_URL}/api/greentrans/booking?grno=${encodeURIComponent(grNo.trim())}`
       );
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -136,7 +137,7 @@ export function GenerateBooking() {
     try {
       // Step 1: Fetch tracking info
       const trackingRes = await fetch(
-        `http://localhost:3000/api/greentrans/tracking?clientId=${encodeURIComponent(
+        `${API_URL}/api/greentrans/tracking?clientId=${encodeURIComponent(
           import.meta.env.VITE_GREENTRANS_CLIENT_ID || 'YOUR_CLIENT_ID_HERE'
         )}&grNo=${encodeURIComponent(data.GRNo)}`
       );
@@ -146,7 +147,7 @@ export function GenerateBooking() {
       const trackingData = await trackingRes.json();
 
       // Step 2: Save to backend (triggers ticket rule if delayed)
-      const saveRes = await fetch('http://localhost:3000/api/consignments', {
+      const saveRes = await fetch(`${API_URL}/api/consignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

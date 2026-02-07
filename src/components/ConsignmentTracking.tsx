@@ -7,18 +7,25 @@ const Val = ({ v }: { v: any }) => (
   <span className="text-gray-800">{v ?? '—'}</span>
 );
 
+const API_URL = import.meta.env.VITE_API_URL;
+const CLIENT_ID = import.meta.env.VITE_GREENTRANS_CLIENT_ID; // renamed for clarity
+
 /* ---------- component ---------- */
 export function ConsignmentTracking() {
-  const [clientId, setClientId] = useState('');
   const [grNo, setGrNo] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
-  const [trackedGRs, setTrackedGRs] = useState<string[]>([]);  // New state for tracked GRs
+  const [trackedGRs, setTrackedGRs] = useState<string[]>([]);
 
   const handleFetch = async () => {
-    if (!clientId || !grNo) {
-      setError('Client ID and GR No are required');
+    if (!CLIENT_ID) {
+      setError('Client ID is not configured in environment variables');
+      return;
+    }
+
+    if (!grNo.trim()) {
+      setError('Please enter GR Number');
       return;
     }
 
@@ -28,8 +35,11 @@ export function ConsignmentTracking() {
 
     try {
       const res = await fetch(
-        `http://localhost:3000/api/greentrans/tracking?clientId=${clientId}&grNo=${grNo}`,
-        { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+        `${API_URL}/api/greentrans/tracking?clientId=${CLIENT_ID}&grNo=${grNo}`,
+        {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        }
       );
 
       const result = await res.json();
@@ -40,7 +50,7 @@ export function ConsignmentTracking() {
 
       setData(result);
     } catch (err: any) {
-      setError(err.message || 'Fetch failed');
+      setError(err.message || 'Failed to fetch tracking data');
     } finally {
       setLoading(false);
     }
@@ -50,22 +60,23 @@ export function ConsignmentTracking() {
     if (!data) return;
 
     try {
-      const saveRes = await fetch('http://localhost:3000/api/consignments', {
+      const saveRes = await fetch(`${API_URL}/api/consignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           GRNo: grNo,
-          bookingData: {}, // Fetch if needed
+          bookingData: {}, // ← you might want to fetch or remove this later
           trackingData: data,
         }),
       });
 
-      if (!saveRes.ok) throw new Error('Failed to add');
+      if (!saveRes.ok) throw new Error('Failed to save consignment');
 
       alert('Added to tracking system!');
-      setTrackedGRs(prev => [...prev, grNo]);  // Add to local list
+      setTrackedGRs((prev) => [...prev, grNo]);
+      // Optional: setGrNo(''); // clear input after success
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to add to system');
     }
   };
 
@@ -79,44 +90,39 @@ export function ConsignmentTracking() {
         Consignment Tracking
       </h2>
 
-      {/* Inputs */}
-      <div className="grid md:grid-cols-2 gap-4 mb-4">
+      {/* Inputs – only GR No now */}
+      <div className="mb-4">
         <input
-          placeholder="Client ID"
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          className="border px-4 py-2 rounded"
-        />
-        <input
-          placeholder="GR No"
+          placeholder="Enter GR No / Consignment Number"
           value={grNo}
           onChange={(e) => setGrNo(e.target.value)}
-          className="border px-4 py-2 rounded"
+          className="w-full border px-4 py-2.5 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onKeyDown={(e) => e.key === 'Enter' && handleFetch()}
         />
       </div>
 
       <button
         onClick={handleFetch}
-        disabled={loading}
-        className="w-full bg-blue-600 text-white py-2 rounded flex justify-center gap-2"
+        disabled={loading || !grNo.trim()}
+        className="w-full bg-blue-600 text-white py-2.5 rounded flex justify-center items-center gap-2 disabled:bg-blue-400 disabled:cursor-not-allowed"
       >
         <Search size={18} />
-        {loading ? 'Fetching…' : 'Track'}
+        {loading ? 'Fetching…' : 'Track Consignment'}
       </button>
 
-      {error && <p className="mt-4 text-red-600">{error}</p>}
+      {error && <p className="mt-4 text-red-600 font-medium">{error}</p>}
 
       {/* DATA */}
       {data && (
-        <div className="mt-6 space-y-6">
+        <div className="mt-8 space-y-8">
           {/* Consignment Details */}
-          <div className="bg-gray-50 p-4 rounded">
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
+          <div className="bg-gray-50 p-5 rounded-lg border border-gray-100">
+            <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
               <Package className="text-green-600" />
               Consignment Details
             </h3>
 
-            <div className="grid md:grid-cols-2 gap-2 text-sm">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 text-sm">
               <p><strong>GR No:</strong> <Val v={d.grno} /></p>
               <p><strong>GR Date:</strong> <Val v={d.grdt} /></p>
               <p><strong>GR Type:</strong> <Val v={d.grtype} /></p>
@@ -139,45 +145,54 @@ export function ConsignmentTracking() {
           </div>
 
           {/* Timeline */}
-          <div className="bg-gray-50 p-4 rounded">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <div className="bg-gray-50 p-5 rounded-lg border border-gray-100">
+            <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
               <Calendar className="text-purple-600" />
               Activity Timeline
             </h3>
 
-            <div className="space-y-4">
-              {data.consignmentactivitylist.map((a: any, i: number) => (
-                <div key={i} className="border-l-2 border-blue-500 pl-4 relative">
-                  <div className="absolute -left-2 top-1 w-3 h-3 bg-blue-500 rounded-full" />
-                  <p className="font-medium">{a.activity}</p>
-                  <p className="text-sm text-gray-600">{a.date}</p>
-                  <p className="text-sm">{a.details}</p>
-                  <p className="text-xs text-gray-500">
-                    Document: {a.documentno ?? '—'}
-                  </p>
-                </div>
-              ))}
+            <div className="space-y-5">
+              {data.consignmentactivitylist?.length > 0 ? (
+                data.consignmentactivitylist.map((a: any, i: number) => (
+                  <div key={i} className="border-l-4 border-blue-500 pl-4 relative">
+                    <div className="absolute -left-2 top-1.5 w-4 h-4 bg-blue-500 rounded-full border-2 border-white" />
+                    <p className="font-medium text-gray-900">{a.activity}</p>
+                    <p className="text-sm text-gray-600 mt-0.5">{a.date}</p>
+                    <p className="text-sm mt-1">{a.details}</p>
+                    {a.documentno && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Document: {a.documentno}
+                      </p>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500">No activity recorded yet.</p>
+              )}
             </div>
           </div>
 
-          {/* Add to System Button */}
+          {/* Action Button */}
           <button
             onClick={handleAddToSystem}
-            className="w-full bg-green-600 text-white py-2 rounded mt-4"
+            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium transition-colors"
           >
-            Add to Tracking System
+            Add to My Tracking List
           </button>
         </div>
       )}
 
       {/* Tracked GR List */}
       {trackedGRs.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-bold mb-4">Tracked GRs</h3>
+        <div className="mt-10">
+          <h3 className="text-xl font-bold mb-4">Recently Tracked Consignments</h3>
           <ul className="space-y-2">
             {trackedGRs.map((gr) => (
-              <li key={gr} className="bg-white p-3 rounded shadow">
-                {gr} - Tracking started
+              <li
+                key={gr}
+                className="bg-gray-50 p-3 rounded border border-gray-200 text-gray-800"
+              >
+                {gr}
               </li>
             ))}
           </ul>

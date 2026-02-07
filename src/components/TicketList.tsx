@@ -29,6 +29,8 @@ const typeLabels: Record<string, string> = {
   other: 'Other',
 };
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export function TicketList({ onTicketClick }: TicketListProps) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +40,7 @@ export function TicketList({ onTicketClick }: TicketListProps) {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('http://localhost:3000/api/tickets');
+      const res = await fetch(`${API_URL}/api/tickets`);
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
       const data = await res.json();
       setTickets(data.tickets || []);
