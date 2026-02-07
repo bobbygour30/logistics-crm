@@ -1,4 +1,4 @@
-import { Truck, Plus, Phone, LogOut } from "lucide-react";
+import { Plus, Phone, LogOut } from "lucide-react";
 
 type HeaderProps = {
   onNewTicket: () => void;
@@ -12,49 +12,56 @@ export function Header({
   onLogout,
 }: HeaderProps) {
   return (
-    <header className="bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="flex items-center justify-between">
-          {/* LEFT */}
-          <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg">
-              <Truck className="w-8 h-8 text-amber-600" />
+    <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-black shadow-lg sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-4 gap-4">
+          
+          {/* LEFT: LOGO + TITLE */}
+          <div className="flex items-center gap-4">
+            <div className="bg-white p-2 rounded-lg shadow flex-shrink-0">
+              <img
+                src="https://goldenroadwaysandlogistics.com/assets/logo-YpDDdl4s.webp"
+                alt="Golden Roadways Logo"
+                className="h-10 sm:h-12 w-auto object-contain"
+              />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">
+
+            <div className="leading-tight">
+              <h1 className="text-lg sm:text-2xl font-bold text-white">
                 Golden Roadways Logistics
               </h1>
-              <p className="text-amber-100 text-sm">
+              <p className="text-xs sm:text-sm text-yellow-300">
                 Customer Relationship Management System
               </p>
             </div>
           </div>
 
-          {/* RIGHT */}
-          <div className="flex items-center space-x-3">
+          {/* RIGHT: ACTIONS */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 justify-start sm:justify-end">
             <button
               onClick={onNewIVRCall}
-              className="bg-white text-amber-700 px-4 py-2 rounded-lg font-medium hover:bg-amber-50 transition-colors flex items-center space-x-2 shadow"
+              className="bg-yellow-400 text-black px-3 sm:px-4 py-2 rounded-lg font-medium hover:bg-yellow-500 transition flex items-center gap-2 shadow text-sm"
             >
               <Phone className="w-4 h-4" />
-              <span>Log IVR Call</span>
+              <span className="hidden sm:inline">Log IVR Call</span>
+              <span className="sm:hidden">IVR</span>
             </button>
 
             <button
               onClick={onNewTicket}
-              className="bg-white text-orange-700 px-4 py-2 rounded-lg font-medium hover:bg-orange-50 transition-colors flex items-center space-x-2 shadow"
+              className="bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-lg font-medium hover:bg-blue-600 transition flex items-center gap-2 shadow text-sm"
             >
               <Plus className="w-4 h-4" />
-              <span>New Ticket</span>
+              <span className="hidden sm:inline">New Ticket</span>
+              <span className="sm:hidden">Ticket</span>
             </button>
 
-            {/* LOGOUT */}
             <button
               onClick={onLogout}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center space-x-2 shadow"
+              className="bg-black text-yellow-400 border border-yellow-400 px-3 sm:px-4 py-2 rounded-lg font-medium hover:bg-yellow-400 hover:text-black transition flex items-center gap-2 shadow text-sm"
             >
               <LogOut className="w-4 h-4" />
-              <span>Logout</span>
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
