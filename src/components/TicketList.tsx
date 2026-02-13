@@ -10,7 +10,9 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Download,
 } from "lucide-react";
+import * as XLSX from "xlsx";   // ← added
 
 type TicketListProps = {
   onTicketClick: (ticket: Ticket) => void;
@@ -116,7 +118,7 @@ export function TicketList({
     setExpandedRows(newExpanded);
   };
 
-  // Filter & sort
+  // Filter & sort (this is used both for display and export)
   const filteredTickets = tickets
     .filter((ticket) => {
       if (statusFilter !== "all" && ticket.status !== statusFilter) return false;
@@ -133,6 +135,52 @@ export function TicketList({
       const dateB = new Date(b.updated_at || b.created_at);
       return dateB.getTime() - dateA.getTime();
     });
+
+  // NEW: Export filtered tickets to Excel
+  const exportToExcel = () => {
+    if (filteredTickets.length === 0) {
+      alert("No tickets to export");
+      return;
+    }
+
+    const exportData = filteredTickets.map((ticket) => ({
+      "Ticket #": ticket.ticket_number,
+      Title: ticket.title,
+      "GR No": ticket.tracking_number || "",
+      Customer: ticket.customers?.name || "N/A",
+      "Customer Phone": ticket.customers?.phone || "",
+      Type: typeLabels[ticket.type] || ticket.type,
+      Priority: ticket.priority,
+      Status: ticket.status,
+      Assigned: ticket.agents?.name || "Unassigned",
+      "Created At": new Date(ticket.created_at).toLocaleString(),
+      "Updated At": ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : "",
+      Description: ticket.description || "",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Tickets");
+
+    // Auto-size columns (optional but improves readability)
+    const colWidths = [
+      { wch: 14 }, // Ticket #
+      { wch: 40 }, // Title
+      { wch: 14 }, // GR No
+      { wch: 22 }, // Customer
+      { wch: 14 }, // Phone
+      { wch: 16 }, // Type
+      { wch: 10 }, // Priority
+      { wch: 12 }, // Status
+      { wch: 18 }, // Assigned
+      { wch: 18 }, // Created
+      { wch: 18 }, // Updated
+      { wch: 60 }, // Description
+    ];
+    worksheet["!cols"] = colWidths;
+
+    XLSX.writeFile(workbook, `tickets_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
 
   // Pagination
   const totalItems = filteredTickets.length;
@@ -184,6 +232,16 @@ export function TicketList({
             <option value="closed">Closed</option>
             <option value="satisfied">Satisfied</option>
           </select>
+
+          {/* NEW: Download Excel button */}
+          <button
+            onClick={exportToExcel}
+            disabled={filteredTickets.length === 0}
+            className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow-md min-w-[160px] justify-center"
+          >
+            <Download className="w-5 h-5" />
+            Download Excel
+          </button>
         </div>
       </div>
 

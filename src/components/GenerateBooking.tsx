@@ -1,6 +1,6 @@
 // src/components/GenerateBooking.tsx
 import { useState, useEffect } from 'react';
-import { Package, Search, Truck } from 'lucide-react';
+import { Package, Search, Truck, Loader2 } from 'lucide-react';
 
 /* -------------------- Helpers -------------------- */
 
@@ -83,6 +83,7 @@ function Detail({ label, value }: { label: string; value: any }) {
 }
 
 const API_URL = import.meta.env.VITE_API_URL;
+const CLIENT_ID = import.meta.env.VITE_GREENTRANS_CLIENT_ID;
 
 /* -------------------- Component -------------------- */
 
@@ -97,13 +98,18 @@ export function GenerateBooking() {
   const [trackedConsignments, setTrackedConsignments] = useState<any[]>([]);
   const [loadingTracked, setLoadingTracked] = useState(true);
 
+  // For showing details of a tracked GR
+  const [selectedGr, setSelectedGr] = useState<string | null>(null);
+  const [trackedDetailLoading, setTrackedDetailLoading] = useState(false);
+  const [trackedDetailData, setTrackedDetailData] = useState<BookingFormData | null>(null);
+  const [trackedDetailError, setTrackedDetailError] = useState<string | null>(null);
+
   const loadTrackedConsignments = async () => {
     try {
       setLoadingTracked(true);
       const res = await fetch(`${API_URL}/api/consignments`);
       if (!res.ok) throw new Error('Failed to load tracked consignments');
       const json = await res.json();
-      // Support both { consignments: [...] } and direct array
       setTrackedConsignments(json.consignments || json || []);
     } catch (err) {
       console.error('Error loading tracked consignments:', err);
@@ -113,23 +119,18 @@ export function GenerateBooking() {
     }
   };
 
-  useEffect(() => {
-    loadTrackedConsignments();
-  }, []);
-
-  const fetchBookingDetail = async () => {
-    if (!grNo.trim()) {
-      setError('GR No is required');
-      return;
-    }
-
+  const fetchBookingDetail = async (gr: string, isTracked = false) => {
     setFetching(true);
     setError(null);
-    setData(null);
+    if (!isTracked) {
+      setData(null);
+      setSelectedGr(null);
+      setTrackedDetailData(null);
+    }
 
     try {
       const res = await fetch(
-        `${API_URL}/api/greentrans/booking?grno=${encodeURIComponent(grNo.trim())}`
+        `${API_URL}/api/greentrans/booking?grno=${encodeURIComponent(gr.trim())}`
       );
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -140,12 +141,46 @@ export function GenerateBooking() {
         throw new Error(result.CommandMessage || 'Fetch failed');
       }
 
-      setData(result);
+      if (isTracked) {
+        setTrackedDetailData(result);
+      } else {
+        setData(result);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch booking details');
+      const msg = err.message || 'Failed to fetch booking details';
+      if (isTracked) {
+        setTrackedDetailError(msg);
+      } else {
+        setError(msg);
+      }
     } finally {
       setFetching(false);
     }
+  };
+
+  const handleFetch = () => {
+    if (!grNo.trim()) {
+      setError('GR No is required');
+      return;
+    }
+    fetchBookingDetail(grNo);
+  };
+
+  const handleSelectTracked = async (gr: string) => {
+    if (selectedGr === gr) {
+      setSelectedGr(null);
+      setTrackedDetailData(null);
+      return;
+    }
+
+    setSelectedGr(gr);
+    setTrackedDetailLoading(true);
+    setTrackedDetailError(null);
+    setTrackedDetailData(null);
+    setData(null); // clear manual search result
+
+    await fetchBookingDetail(gr, true);
+    setTrackedDetailLoading(false);
   };
 
   const handleStartTracking = async () => {
@@ -153,7 +188,6 @@ export function GenerateBooking() {
 
     const currentGr = data.GRNo.trim();
 
-    // Quick client-side duplicate check
     if (trackedConsignments.some((c) => c.GRNo === currentGr)) {
       alert('This GR is already being tracked.');
       return;
@@ -165,7 +199,7 @@ export function GenerateBooking() {
     try {
       const trackingRes = await fetch(
         `${API_URL}/api/greentrans/tracking?clientId=${encodeURIComponent(
-          import.meta.env.VITE_GREENTRANS_CLIENT_ID || 'YOUR_CLIENT_ID_HERE'
+          CLIENT_ID || 'YOUR_CLIENT_ID_HERE'
         )}&grNo=${encodeURIComponent(currentGr)}`
       );
 
@@ -189,7 +223,6 @@ export function GenerateBooking() {
       }
 
       alert('Consignment added to tracking system! Delay checks are now active.');
-      // Refresh list from backend
       await loadTrackedConsignments();
     } catch (err: any) {
       setError(err.message || 'Failed to start tracking');
@@ -197,6 +230,13 @@ export function GenerateBooking() {
       setTracking(false);
     }
   };
+
+  useEffect(() => {
+    loadTrackedConsignments();
+  }, []);
+
+  const displayData = data || trackedDetailData;
+  const isTrackedView = !!trackedDetailData;
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
@@ -206,75 +246,76 @@ export function GenerateBooking() {
         <h1 className="text-3xl font-bold">Greentrans Booking Details</h1>
       </div>
 
-      {/* Search */}
-      <div className="flex gap-3 mb-6">
-        <input
-          placeholder="Enter GR No"
-          value={grNo}
-          onChange={(e) => setGrNo(e.target.value.toUpperCase())}
-          className="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          onClick={fetchBookingDetail}
-          disabled={fetching}
-          className={`px-6 py-2 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 min-w-[140px] ${
-            fetching ? 'cursor-wait' : ''
-          }`}
-        >
-          <Search className="w-4 h-4" />
-          {fetching ? 'Fetching…' : 'Fetch'}
-        </button>
-      </div>
+      <div className="space-y-8">
+        {/* Search + Result */}
+        <div className="bg-white rounded-xl shadow p-6">
+          {/* Search bar */}
+          <div className="flex gap-3 mb-6">
+            <input
+              placeholder="Enter GR No"
+              value={grNo}
+              onChange={(e) => setGrNo(e.target.value.toUpperCase())}
+              className="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onKeyDown={(e) => e.key === 'Enter' && handleFetch()}
+              disabled={fetching}
+            />
+            <button
+              onClick={handleFetch}
+              disabled={fetching || !grNo.trim()}
+              className={`px-6 py-2 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 min-w-[140px] ${
+                fetching ? 'cursor-wait' : ''
+              }`}
+            >
+              {fetching ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
+              {fetching ? 'Fetching…' : 'Fetch'}
+            </button>
+          </div>
 
-      {/* Error */}
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-700 rounded border border-red-200">
-          {error}
-        </div>
-      )}
+          {(error || trackedDetailError) && (
+            <div className="mb-6 p-4 bg-red-50 text-red-700 rounded border border-red-200">
+              {error || trackedDetailError}
+            </div>
+          )}
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Main content */}
-        <div className="lg:col-span-2 space-y-6">
-          {data && (
+          {displayData && (
             <>
               {/* Booking Summary */}
-              <div className="bg-white rounded-xl shadow p-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Info label="GR No" value={data.GRNo} />
-                <Info label="GR Date" value={data.GRDate} />
-                <Info label="GR Time" value={data.GRTime} />
-                <Info label="Mode Type" value={data.ModeType} />
-                <Info label="Load Type" value={data.LoadType} />
-                <Info label="Booking Mode" value={data.BookingMode} />
-                <Info label="Total Packages" value={data.TotalPcks} />
-                <Info label="Gross Weight (kg)" value={data.GrossWeight} />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <Info label="GR No" value={displayData.GRNo} />
+                <Info label="GR Date" value={displayData.GRDate} />
+                <Info label="GR Time" value={displayData.GRTime} />
+                <Info label="Mode Type" value={displayData.ModeType} />
+                <Info label="Load Type" value={displayData.LoadType} />
+                <Info label="Booking Mode" value={displayData.BookingMode} />
+                <Info label="Total Packages" value={displayData.TotalPcks} />
+                <Info label="Gross Weight (kg)" value={displayData.GrossWeight} />
               </div>
 
               {/* Addresses */}
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 gap-6 mb-8">
                 <div className="bg-white rounded-xl shadow p-6">
-                  <h3 className="text-lg font-semibold mb-4">🚚 Shipper</h3>
-                  <Detail label="Name" value={data.ShipperDetails?.Name} />
-                  <Detail label="City" value={data.ShipperDetails?.City} />
-                  <Detail label="State" value={data.ShipperDetails?.State} />
-                  <Detail label="Mobile" value={data.ShipperDetails?.Mobile} />
-                  <Detail label="GST No" value={data.ShipperDetails?.GSTNo} />
+                  <h3 className="text-lg font-semibold mb-4">🚚 Shipper {isTrackedView && `(GR ${selectedGr})`}</h3>
+                  <Detail label="Name" value={displayData.ShipperDetails?.Name} />
+                  <Detail label="City" value={displayData.ShipperDetails?.City} />
+                  <Detail label="State" value={displayData.ShipperDetails?.State} />
+                  <Detail label="Mobile" value={displayData.ShipperDetails?.Mobile} />
+                  <Detail label="GST No" value={displayData.ShipperDetails?.GSTNo} />
                 </div>
 
                 <div className="bg-white rounded-xl shadow p-6">
                   <h3 className="text-lg font-semibold mb-4">📦 Consignee</h3>
-                  <Detail label="Name" value={data.ConsigneeDetails?.Name} />
-                  <Detail label="City" value={data.ConsigneeDetails?.City} />
-                  <Detail label="State" value={data.ConsigneeDetails?.State} />
-                  <Detail label="Mobile" value={data.ConsigneeDetails?.Mobile} />
-                  <Detail label="GST No" value={data.ConsigneeDetails?.GSTNo} />
+                  <Detail label="Name" value={displayData.ConsigneeDetails?.Name} />
+                  <Detail label="City" value={displayData.ConsigneeDetails?.City} />
+                  <Detail label="State" value={displayData.ConsigneeDetails?.State} />
+                  <Detail label="Mobile" value={displayData.ConsigneeDetails?.Mobile} />
+                  <Detail label="GST No" value={displayData.ConsigneeDetails?.GSTNo} />
                 </div>
               </div>
 
               {/* Invoice Table */}
-              <div className="bg-white rounded-xl shadow p-6">
+              <div className="bg-white rounded-xl shadow p-6 mb-8">
                 <h3 className="text-lg font-semibold mb-4">🧾 Invoice Details</h3>
-                {data.InvoiceDetails.length === 0 ? (
+                {displayData.InvoiceDetails.length === 0 ? (
                   <p className="text-gray-500">No invoice details available</p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -288,7 +329,7 @@ export function GenerateBooking() {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.InvoiceDetails.map((inv, i) => (
+                        {displayData.InvoiceDetails.map((inv, i) => (
                           <tr key={i} className="hover:bg-gray-50">
                             <td className="border p-3">{show(inv.InvoiceNo)}</td>
                             <td className="border p-3">{show(inv.InvoiceDate)}</td>
@@ -306,69 +347,95 @@ export function GenerateBooking() {
                 )}
               </div>
 
-              {/* Start Tracking Button */}
-              <div className="flex justify-center pt-4">
-                <button
-                  onClick={handleStartTracking}
-                  disabled={tracking || !data?.GRNo}
-                  className={`px-10 py-3 bg-green-600 text-white font-medium rounded-lg shadow hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 flex items-center gap-2 ${
-                    tracking ? 'cursor-wait' : ''
-                  }`}
-                >
-                  <Truck className="w-5 h-5" />
-                  {tracking ? 'Adding...' : 'Start Tracking This GR'}
-                </button>
-              </div>
+              {/* Only show tracking button for newly fetched GR */}
+              {!isTrackedView && (
+                <div className="flex justify-center pt-4">
+                  <button
+                    onClick={handleStartTracking}
+                    disabled={tracking || !data?.GRNo}
+                    className={`px-10 py-3 bg-green-600 text-white font-medium rounded-lg shadow hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 flex items-center gap-2 ${
+                      tracking ? 'cursor-wait' : ''
+                    }`}
+                  >
+                    <Truck className="w-5 h-5" />
+                    {tracking ? 'Adding...' : 'Start Tracking This GR'}
+                  </button>
+                </div>
+              )}
             </>
+          )}
+
+          {!displayData && !fetching && !error && !trackedDetailError && (
+            <div className="text-center py-12 text-gray-500">
+              Enter a GR number above to view booking details
+            </div>
           )}
         </div>
 
-        {/* Tracked GRs – always visible */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl shadow p-5 sticky top-6">
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <Truck className="w-5 h-5 text-green-600" />
-              Tracked GRs
-            </h3>
+        {/* Tracked GRs – now below */}
+        <div className="bg-white rounded-xl shadow p-6">
+          <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
+            <Truck className="w-6 h-6 text-green-600" />
+            Tracked GRs
+          </h3>
 
-            {loadingTracked ? (
-              <p className="text-gray-500 text-sm">Loading tracked consignments...</p>
-            ) : trackedConsignments.length === 0 ? (
-              <p className="text-gray-500 text-sm italic">No consignments tracked yet</p>
-            ) : (
-              <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-gray-600 sticky top-0">
-                    <tr>
-                      <th className="p-2 text-left font-medium">GR No</th>
-                      <th className="p-2 text-left font-medium">Status</th>
+          {loadingTracked ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="animate-spin mr-2" />
+              <span className="text-gray-600">Loading tracked consignments...</span>
+            </div>
+          ) : trackedConsignments.length === 0 ? (
+            <p className="text-gray-500 italic text-center py-8">
+              No consignments tracked yet
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[500px]">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="p-3 text-left font-medium">GR No</th>
+                    <th className="p-3 text-left font-medium">Status</th>
+                    <th className="p-3 text-left font-medium hidden md:table-cell">Last Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trackedConsignments.map((c) => (
+                    <tr
+                      key={c.GRNo}
+                      onClick={() => handleSelectTracked(c.GRNo)}
+                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${
+                        selectedGr === c.GRNo ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      <td className="p-3 font-mono font-medium">{c.GRNo}</td>
+                      <td className="p-3">
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded text-xs font-medium ${
+                            c.currentStatus === 'delivered'
+                              ? 'bg-green-100 text-green-800'
+                              : c.currentStatus?.toLowerCase().includes('delay') ||
+                                c.currentStatus === 'In Transit'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
+                          {c.currentStatus || 'Tracking'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-gray-600 text-xs hidden md:table-cell">
+                        {c.updated_at
+                          ? new Date(c.updated_at).toLocaleString('en-IN', {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            })
+                          : '—'}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {trackedConsignments.map((c) => (
-                      <tr key={c.GRNo} className="border-t hover:bg-gray-50">
-                        <td className="p-2 font-mono">{c.GRNo}</td>
-                        <td className="p-2">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                              c.currentStatus === 'delivered'
-                                ? 'bg-green-100 text-green-800'
-                                : c.currentStatus?.toLowerCase().includes('delay') ||
-                                  c.currentStatus === 'In Transit'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {c.currentStatus || 'Tracking'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>
