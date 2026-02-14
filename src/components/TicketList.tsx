@@ -1,4 +1,3 @@
-// src/components/TicketList.tsx
 import { useState, useEffect } from "react";
 import { Ticket } from "../lib/types";
 import {
@@ -12,7 +11,7 @@ import {
   ChevronRight,
   Download,
 } from "lucide-react";
-import * as XLSX from "xlsx";   // ← added
+import * as XLSX from "xlsx";
 
 type TicketListProps = {
   onTicketClick: (ticket: Ticket) => void;
@@ -23,10 +22,10 @@ type TicketListProps = {
 const ITEMS_PER_PAGE = 10;
 
 const statusColors: Record<string, string> = {
-  open: "bg-red-100 text-red-800",
-  working: "bg-amber-100 text-amber-800",
-  closed: "bg-gray-100 text-gray-800",
-  satisfied: "bg-green-100 text-green-800",
+  open: "bg-red-100 text-red-800 border border-red-300",
+  working: "bg-amber-100 text-amber-800 border border-amber-300",
+  closed: "bg-gray-200 text-gray-800 border border-gray-300",
+  satisfied: "bg-green-100 text-green-800 border border-green-300 font-semibold",
 };
 
 const priorityColors: Record<string, string> = {
@@ -118,7 +117,7 @@ export function TicketList({
     setExpandedRows(newExpanded);
   };
 
-  // Filter & sort (this is used both for display and export)
+  // Filter & sort
   const filteredTickets = tickets
     .filter((ticket) => {
       if (statusFilter !== "all" && ticket.status !== statusFilter) return false;
@@ -136,7 +135,7 @@ export function TicketList({
       return dateB.getTime() - dateA.getTime();
     });
 
-  // NEW: Export filtered tickets to Excel
+  // Export to Excel
   const exportToExcel = () => {
     if (filteredTickets.length === 0) {
       alert("No tickets to export");
@@ -162,20 +161,10 @@ export function TicketList({
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Tickets");
 
-    // Auto-size columns (optional but improves readability)
     const colWidths = [
-      { wch: 14 }, // Ticket #
-      { wch: 40 }, // Title
-      { wch: 14 }, // GR No
-      { wch: 22 }, // Customer
-      { wch: 14 }, // Phone
-      { wch: 16 }, // Type
-      { wch: 10 }, // Priority
-      { wch: 12 }, // Status
-      { wch: 18 }, // Assigned
-      { wch: 18 }, // Created
-      { wch: 18 }, // Updated
-      { wch: 60 }, // Description
+      { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 22 },
+      { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 12 },
+      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 60 },
     ];
     worksheet["!cols"] = colWidths;
 
@@ -233,7 +222,6 @@ export function TicketList({
             <option value="satisfied">Satisfied</option>
           </select>
 
-          {/* NEW: Download Excel button */}
           <button
             onClick={exportToExcel}
             disabled={filteredTickets.length === 0}
@@ -331,7 +319,7 @@ export function TicketList({
                           statusColors[ticket.status] || "bg-gray-100 text-gray-800"
                         }`}
                       >
-                        {ticket.status}
+                        {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -413,7 +401,7 @@ export function TicketList({
                       statusColors[ticket.status] || "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    {ticket.status}
+                    {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
                   </span>
                 </div>
 

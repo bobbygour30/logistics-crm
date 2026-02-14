@@ -1,4 +1,3 @@
-// src/components/GenerateBooking.tsx
 import { useState, useEffect } from 'react';
 import { Package, Search, Truck, Loader2 } from 'lucide-react';
 
@@ -94,11 +93,9 @@ export function GenerateBooking() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<BookingFormData | null>(null);
 
-  // Tracked consignments from backend
   const [trackedConsignments, setTrackedConsignments] = useState<any[]>([]);
   const [loadingTracked, setLoadingTracked] = useState(true);
 
-  // For showing details of a tracked GR
   const [selectedGr, setSelectedGr] = useState<string | null>(null);
   const [trackedDetailLoading, setTrackedDetailLoading] = useState(false);
   const [trackedDetailData, setTrackedDetailData] = useState<BookingFormData | null>(null);
@@ -116,6 +113,30 @@ export function GenerateBooking() {
       setError('Could not load tracked consignments');
     } finally {
       setLoadingTracked(false);
+    }
+  };
+
+  const syncToDatabase = async (gr: string, bookingData: any, trackingData: any) => {
+    try {
+      const saveRes = await fetch(`${API_URL}/api/consignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          GRNo: gr.trim(),
+          bookingData,
+          trackingData,
+        }),
+      });
+
+      if (saveRes.ok) {
+        console.log(`[DB SYNC] Success for GR ${gr} from booking view`);
+        await loadTrackedConsignments();
+      } else {
+        const errText = await saveRes.text();
+        console.warn(`[DB SYNC] Failed for GR ${gr}: ${errText}`);
+      }
+    } catch (err) {
+      console.error(`[DB SYNC ERROR] GR ${gr}:`, err);
     }
   };
 
@@ -140,6 +161,17 @@ export function GenerateBooking() {
       if (result.CommandStatus !== '1') {
         throw new Error(result.CommandMessage || 'Fetch failed');
       }
+
+      // Fetch fresh tracking and sync both to DB
+      const trackingRes = await fetch(
+        `${API_URL}/api/greentrans/tracking?clientId=${encodeURIComponent(CLIENT_ID || '')}&grNo=${encodeURIComponent(gr.trim())}`
+      );
+      let trackingData = {};
+      if (trackingRes.ok) {
+        trackingData = await trackingRes.json();
+      }
+
+      await syncToDatabase(gr, result, trackingData);
 
       if (isTracked) {
         setTrackedDetailData(result);
@@ -177,7 +209,7 @@ export function GenerateBooking() {
     setTrackedDetailLoading(true);
     setTrackedDetailError(null);
     setTrackedDetailData(null);
-    setData(null); // clear manual search result
+    setData(null);
 
     await fetchBookingDetail(gr, true);
     setTrackedDetailLoading(false);
@@ -199,7 +231,7 @@ export function GenerateBooking() {
     try {
       const trackingRes = await fetch(
         `${API_URL}/api/greentrans/tracking?clientId=${encodeURIComponent(
-          CLIENT_ID || 'YOUR_CLIENT_ID_HERE'
+          CLIENT_ID || ''
         )}&grNo=${encodeURIComponent(currentGr)}`
       );
 
@@ -240,16 +272,13 @@ export function GenerateBooking() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Package className="w-8 h-8 text-green-600" />
         <h1 className="text-3xl font-bold">Greentrans Booking Details</h1>
       </div>
 
       <div className="space-y-8">
-        {/* Search + Result */}
         <div className="bg-white rounded-xl shadow p-6">
-          {/* Search bar */}
           <div className="flex gap-3 mb-6">
             <input
               placeholder="Enter GR No"
@@ -279,7 +308,6 @@ export function GenerateBooking() {
 
           {displayData && (
             <>
-              {/* Booking Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <Info label="GR No" value={displayData.GRNo} />
                 <Info label="GR Date" value={displayData.GRDate} />
@@ -291,7 +319,6 @@ export function GenerateBooking() {
                 <Info label="Gross Weight (kg)" value={displayData.GrossWeight} />
               </div>
 
-              {/* Addresses */}
               <div className="grid md:grid-cols-2 gap-6 mb-8">
                 <div className="bg-white rounded-xl shadow p-6">
                   <h3 className="text-lg font-semibold mb-4">🚚 Shipper {isTrackedView && `(GR ${selectedGr})`}</h3>
@@ -312,7 +339,6 @@ export function GenerateBooking() {
                 </div>
               </div>
 
-              {/* Invoice Table */}
               <div className="bg-white rounded-xl shadow p-6 mb-8">
                 <h3 className="text-lg font-semibold mb-4">🧾 Invoice Details</h3>
                 {displayData.InvoiceDetails.length === 0 ? (
@@ -347,7 +373,6 @@ export function GenerateBooking() {
                 )}
               </div>
 
-              {/* Only show tracking button for newly fetched GR */}
               {!isTrackedView && (
                 <div className="flex justify-center pt-4">
                   <button
@@ -372,7 +397,6 @@ export function GenerateBooking() {
           )}
         </div>
 
-        {/* Tracked GRs – now below */}
         <div className="bg-white rounded-xl shadow p-6">
           <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
             <Truck className="w-6 h-6 text-green-600" />

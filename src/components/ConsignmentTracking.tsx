@@ -1,31 +1,28 @@
-// src/components/ConsignmentTracking.tsx
 import { useState, useEffect } from 'react';
 import { Search, Truck, Calendar, Package, Loader2 } from 'lucide-react';
 
-/* ---------- helpers ---------- */
-const Val = ({ v }: { v: any }) => (
-  <span className="text-gray-800 font-medium">{v ?? '—'}</span>
+const Val = ({ v }: { v: unknown }) => (
+  <span className="text-gray-800 font-medium">{v == null ? '—' : String(v)}</span>
 );
 
-const API_URL = import.meta.env.VITE_API_URL;
-const CLIENT_ID = import.meta.env.VITE_GREENTRANS_CLIENT_ID;
+const API_URL = import.meta.env.VITE_API_URL as string;
+const CLIENT_ID = import.meta.env.VITE_GREENTRANS_CLIENT_ID as string | undefined;
 
-/* ---------- component ---------- */
 export function ConsignmentTracking() {
-  const [grNo, setGrNo] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [grNo, setGrNo] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
 
-  // Tracked consignments from backend
   const [trackedConsignments, setTrackedConsignments] = useState<any[]>([]);
-  const [loadingTracked, setLoadingTracked] = useState(true);
+  const [loadingTracked, setLoadingTracked] = useState<boolean>(true);
 
-  // For showing details of a tracked GR
   const [selectedGr, setSelectedGr] = useState<string | null>(null);
-  const [trackedDetailLoading, setTrackedDetailLoading] = useState(false);
   const [trackedDetailData, setTrackedDetailData] = useState<any>(null);
   const [trackedDetailError, setTrackedDetailError] = useState<string | null>(null);
+
+  // Removed unused trackedDetailLoading state (you can add back if you want a spinner)
+  // const [trackedDetailLoading, setTrackedDetailLoading] = useState<boolean>(false);
 
   const loadTrackedConsignments = async () => {
     try {
@@ -42,7 +39,31 @@ export function ConsignmentTracking() {
     }
   };
 
-  const fetchTrackingData = async (gr: string) => {
+  const syncToDatabase = async (gr: string, trackingData: unknown) => {
+    try {
+      const saveRes = await fetch(`${API_URL}/api/consignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          GRNo: gr.trim(),
+          bookingData: {},
+          trackingData,
+        }),
+      });
+
+      if (saveRes.ok) {
+        console.log(`[DB SYNC] Success: Updated consignment for GR ${gr}`);
+        await loadTrackedConsignments();
+      } else {
+        const errText = await saveRes.text();
+        console.warn(`[DB SYNC] Failed for GR ${gr}: ${errText}`);
+      }
+    } catch (err) {
+      console.error(`[DB SYNC ERROR] GR ${gr}:`, err);
+    }
+  };
+
+  const fetchTrackingData = async (gr: string): Promise<any | null> => {
     if (!CLIENT_ID) {
       setError('Client ID is not configured');
       return null;
@@ -57,15 +78,22 @@ export function ConsignmentTracking() {
         }
       );
 
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
       const result = await res.json();
 
       if (result.status !== '1') {
         throw new Error(result.message || 'Tracking failed');
       }
 
+      await syncToDatabase(gr, result);
+
       return result;
-    } catch (err: any) {
-      console.error(err);
+    } catch (err: unknown) {
+      console.error('Tracking fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch tracking data');
       return null;
     }
   };
@@ -79,15 +107,13 @@ export function ConsignmentTracking() {
     setLoading(true);
     setError(null);
     setData(null);
-    setSelectedGr(null);          // clear selection when manual search
+    setSelectedGr(null);
     setTrackedDetailData(null);
 
     const result = await fetchTrackingData(grNo);
 
     if (result) {
       setData(result);
-    } else {
-      setError('Failed to fetch tracking data');
     }
 
     setLoading(false);
@@ -101,10 +127,10 @@ export function ConsignmentTracking() {
     }
 
     setSelectedGr(gr);
-    setTrackedDetailLoading(true);
+    // setTrackedDetailLoading(true); // ← if you want spinner, uncomment and use in JSX
     setTrackedDetailError(null);
     setTrackedDetailData(null);
-    setData(null);                // clear manual search result
+    setData(null);
 
     const result = await fetchTrackingData(gr);
 
@@ -114,15 +140,15 @@ export function ConsignmentTracking() {
       setTrackedDetailError('Failed to load current status for this GR');
     }
 
-    setTrackedDetailLoading(false);
+    // setTrackedDetailLoading(false);
   };
 
   const handleAddToSystem = async () => {
     if (!data?.consignmentdetail?.grno) return;
 
-    const currentGr = data.consignmentdetail.grno.trim();
+    const currentGr: string = data.consignmentdetail.grno.trim();
 
-    if (trackedConsignments.some((c) => c.GRNo === currentGr)) {
+    if (trackedConsignments.some((c: any) => c.GRNo === currentGr)) {
       alert('This GR is already in your tracking list.');
       return;
     }
@@ -133,7 +159,7 @@ export function ConsignmentTracking() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           GRNo: currentGr,
-          bookingData: {}, // extend later if needed
+          bookingData: {},
           trackingData: data,
         }),
       });
@@ -145,8 +171,8 @@ export function ConsignmentTracking() {
 
       alert('Added to tracking system!');
       await loadTrackedConsignments();
-    } catch (err: any) {
-      setError(err.message || 'Failed to add to tracking system');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to add to tracking system');
     }
   };
 
@@ -161,16 +187,13 @@ export function ConsignmentTracking() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
-      {/* Header */}
       <h2 className="text-3xl font-bold mb-6 flex items-center gap-3">
         <Truck className="text-blue-600" />
         Consignment Tracking
       </h2>
 
       <div className="space-y-8">
-        {/* Search + Result */}
         <div className="bg-white rounded-xl shadow p-6">
-          {/* Search bar */}
           <div className="flex gap-3 mb-6">
             <input
               placeholder="Enter GR No / Consignment Number"
@@ -198,7 +221,6 @@ export function ConsignmentTracking() {
 
           {displayData && (
             <div className="space-y-8">
-              {/* Consignment Details */}
               <div>
                 <h3 className="font-semibold text-lg mb-5 flex items-center gap-2">
                   <Package className="text-green-600" />
@@ -227,7 +249,6 @@ export function ConsignmentTracking() {
                 </div>
               </div>
 
-              {/* Timeline */}
               <div>
                 <h3 className="font-semibold text-lg mb-5 flex items-center gap-2">
                   <Calendar className="text-purple-600" />
@@ -258,7 +279,6 @@ export function ConsignmentTracking() {
                 )}
               </div>
 
-              {/* Only show "Add" button for newly searched (not already tracked) */}
               {!isTrackedView && (
                 <button
                   onClick={handleAddToSystem}
@@ -278,7 +298,6 @@ export function ConsignmentTracking() {
           )}
         </div>
 
-        {/* My Tracked GRs – now below */}
         <div className="bg-white rounded-xl shadow p-6">
           <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
             <Truck className="w-6 h-6 text-green-600" />
@@ -305,7 +324,7 @@ export function ConsignmentTracking() {
                   </tr>
                 </thead>
                 <tbody>
-                  {trackedConsignments.map((c) => (
+                  {trackedConsignments.map((c: any) => (
                     <tr
                       key={c.GRNo}
                       onClick={() => handleSelectTracked(c.GRNo)}

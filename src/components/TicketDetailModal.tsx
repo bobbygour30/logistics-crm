@@ -1,4 +1,3 @@
-// src/components/TicketDetailModal.tsx
 import { useState, useEffect } from 'react';
 import { X, Calendar, User, Package, MessageSquare } from 'lucide-react';
 import { Ticket, Agent, TicketComment } from '../lib/types';
@@ -9,15 +8,31 @@ type TicketDetailModalProps = {
   onUpdate: () => void;
 };
 
+const statusColors = {
+  open: 'bg-red-100 text-red-800 border border-red-300',
+  working: 'bg-amber-100 text-amber-800 border border-amber-300',
+  closed: 'bg-gray-200 text-gray-800 border border-gray-300',
+  satisfied: 'bg-green-100 text-green-800 border border-green-300 font-semibold',
+} as const; // ← use as const to make it a literal type
+
+// Helper to safely get color (prevents TS error)
+const getStatusColor = (status: string): string => {
+  return statusColors[status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800';
+};
+
 export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailModalProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [comments, setComments] = useState<TicketComment[]>([]);
-  const [newComment, setNewComment] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [newComment, setNewComment] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const API_URL = import.meta.env.VITE_API_URL as string || 'http://localhost:3000';
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    status: string;
+    assigned_to: string;
+    priority: string;
+  }>({
     status: ticket.status,
     assigned_to: ticket.assigned_to || '',
     priority: ticket.priority,
@@ -25,7 +40,7 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
 
   useEffect(() => {
     loadAgentsAndComments();
-    const interval = setInterval(loadAgentsAndComments, 30000); // Auto-refresh
+    const interval = setInterval(loadAgentsAndComments, 30000);
     return () => clearInterval(interval);
   }, [ticket.id]);
 
@@ -36,16 +51,18 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
         fetch(`${API_URL}/api/tickets/${ticket.id}/comments`),
       ]);
 
-      if (!agentsRes.ok || !commentsRes.ok) throw new Error('Failed to load data');
+      if (!agentsRes.ok || !commentsRes.ok) {
+        throw new Error('Failed to load data');
+      }
 
       const agentsData = await agentsRes.json();
       const commentsData = await commentsRes.json();
 
       setAgents(agentsData.agents || []);
       setComments(commentsData.comments || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error loading agents/comments:', err);
-      alert('Failed to load data: ' + err.message);
+      alert('Failed to load data: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -67,9 +84,9 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
         throw new Error(error.details || 'Update failed');
       }
 
-      onUpdate(); // Refresh parent list + close modal if needed
-    } catch (err: any) {
-      alert('Error updating ticket: ' + err.message);
+      onUpdate();
+    } catch (err: unknown) {
+      alert('Error updating ticket: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setLoading(false);
     }
@@ -85,8 +102,7 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
         body: JSON.stringify({
           comment: newComment.trim(),
           is_internal: false,
-          // In real app: agent_id would come from auth
-          agent_id: null, // or current logged-in agent
+          agent_id: null,
         }),
       });
 
@@ -96,17 +112,10 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
       }
 
       setNewComment('');
-      loadAgentsAndComments(); // Refresh comments
-    } catch (err: any) {
-      alert('Error adding comment: ' + err.message);
+      loadAgentsAndComments();
+    } catch (err: unknown) {
+      alert('Error adding comment: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
-  };
-
-  const statusColors = {
-    open: 'bg-red-100 text-red-800',
-    working: 'bg-amber-100 text-amber-800',
-    closed: 'bg-gray-100 text-gray-800',
-    satisfied: 'bg-green-100 text-green-800',
   };
 
   return (
@@ -175,7 +184,11 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
               <button
                 onClick={handleUpdate}
                 disabled={loading}
-                className="w-full px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                className={`w-full px-4 py-2 text-white rounded-lg transition-colors ${
+                  loading
+                    ? 'bg-amber-400 cursor-wait'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                }`}
               >
                 {loading ? 'Updating...' : 'Update Ticket'}
               </button>
@@ -216,11 +229,10 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
                   <div className="pt-2">
                     <span
                       className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        statusColors[ticket.status as keyof typeof statusColors] ||
-                        'bg-gray-100 text-gray-800'
+                        getStatusColor(ticket.status)
                       }`}
                     >
-                      Current: {ticket.status}
+                      Current Status: {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
                     </span>
                   </div>
                 </div>
@@ -269,7 +281,7 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
               />
               <button
                 onClick={handleAddComment}
-                className="mt-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                className="mt-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
               >
                 Add Comment
               </button>
