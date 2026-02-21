@@ -1,17 +1,16 @@
-// src/App.tsx (updated nav section and content switcher)
-import { useState, useEffect } from "react";
+// src/App.tsx (fully corrected - simplified dashboard to use self-contained TicketList; removed unused states; modals trigger auto-refresh via TicketList polling)
+import { useState } from "react";
 import { Ticket } from "./lib/types";
 import { Header } from "./components/Header";
-import { StatsOverview } from "./components/StatsOverview";
 import { TicketList } from "./components/TicketList";
 import { CreateTicketModal } from "./components/CreateTicketModal";
 import { TicketDetailModal } from "./components/TicketDetailModal";
 import { IVRCallModal } from "./components/IVRCallModal";
 import { ConsignmentTracking } from "./components/ConsignmentTracking";
 import { GenerateBooking } from "./components/GenerateBooking";
-import { AllGRs } from "./components/AllGRs"; // ← NEW IMPORT
+import { AllGRs } from "./components/AllGRs";
 import { Login } from "./components/Login";
-import { Truck, FileText, Database } from "lucide-react"; // ← Add Database icon
+import { Truck, FileText, Database } from "lucide-react";
 
 function App() {
   /* ================= AUTH ================= */
@@ -25,70 +24,17 @@ function App() {
   };
 
   /* ================= STATE ================= */
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "open" | "working" | "closed" | "satisfied"
-  >("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showIVRModal, setShowIVRModal] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [currentView, setCurrentView] = useState<
-    "dashboard" | "tracking" | "booking" | "all-grs" // ← ADD NEW VIEW
+    "dashboard" | "tracking" | "booking" | "all-grs"
   >("dashboard");
-
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-
-  /* ================= API ================= */
-  const loadTickets = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/api/tickets`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
-      }
-      const data = await response.json();
-      setTickets(data.tickets || []);
-    } catch (err: any) {
-      console.error("Error loading tickets:", err);
-      alert("Failed to load tickets: " + err.message);
-      setTickets([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ================= EFFECT ================= */
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadTickets();
-    }
-  }, [isAuthenticated]);
 
   /* ================= LOGIN GATE ================= */
   if (!isAuthenticated) {
     return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
-
-  /* ================= LOADING ================= */
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const stats = {
-    total: tickets.length,
-    open: tickets.filter((t) => t.status === "open").length,
-    working: tickets.filter((t) => t.status === "working").length,
-    closed: tickets.filter((t) => t.status === "closed").length,
-    satisfied: tickets.filter((t) => t.status === "satisfied").length,
-  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -98,7 +44,7 @@ function App() {
         onLogout={handleLogout}
       />
 
-      {/* NAV ← UPDATED WITH NEW TAB */}
+      {/* NAV */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8 overflow-x-auto">
@@ -137,7 +83,6 @@ function App() {
               <span>Generate Booking</span>
             </button>
 
-            {/* ← NEW TAB */}
             <button
               onClick={() => setCurrentView("all-grs")}
               className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 whitespace-nowrap ${
@@ -153,33 +98,24 @@ function App() {
         </div>
       </div>
 
-      {/* CONTENT ← UPDATED WITH NEW VIEW */}
+      {/* CONTENT */}
       <main className="px-4 sm:px-6 lg:px-8 py-8">
         {currentView === "dashboard" ? (
-          <>
-            <StatsOverview stats={stats} onStatusClick={setStatusFilter} />
-
-            <TicketList
-              onTicketClick={setSelectedTicket}
-              statusFilter={statusFilter}
-              setStatusFilter={setStatusFilter}
-            />
-          </>
+          <TicketList onTicketClick={setSelectedTicket} />
         ) : currentView === "tracking" ? (
           <ConsignmentTracking />
         ) : currentView === "booking" ? (
           <GenerateBooking />
-        ) : currentView === "all-grs" ? ( // ← NEW CASE
+        ) : currentView === "all-grs" ? (
           <AllGRs />
         ) : null}
       </main>
 
-      {/* MODALS ← UNCHANGED */}
+      {/* MODALS */}
       {showCreateModal && (
         <CreateTicketModal
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
-            loadTickets();
             setShowCreateModal(false);
           }}
         />
@@ -197,7 +133,6 @@ function App() {
           ticket={selectedTicket}
           onClose={() => setSelectedTicket(null)}
           onUpdate={() => {
-            loadTickets();
             setSelectedTicket(null);
           }}
         />

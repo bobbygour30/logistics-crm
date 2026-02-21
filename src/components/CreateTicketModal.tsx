@@ -1,4 +1,4 @@
-// src/components/CreateTicketModal.tsx
+// src/components/CreateTicketModal.tsx (updated - add color default, but since manual, optional)
 import { useState } from 'react';
 import { X } from 'lucide-react';
 

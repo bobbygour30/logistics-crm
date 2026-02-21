@@ -1,4 +1,4 @@
-// src/lib/types.ts
+// src/lib/types.ts (updated - add color to Ticket)
 export type Customer = {
   id: string;
   name: string;
@@ -28,6 +28,7 @@ export type Ticket = {
   type: string;
   status: string;
   priority: string;
+  color?: 'yellow' | 'orange' | 'red' | 'green';  // ← make it optional
   source: string;
   tracking_number: string | null;
   created_at: string;

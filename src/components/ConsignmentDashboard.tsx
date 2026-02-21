@@ -1,6 +1,6 @@
-// src/components/ConsignmentDashboard.tsx
+// src/components/ConsignmentDashboard.tsx (updated - removed notifications)
 import { useState, useEffect } from 'react';
-import { Truck, AlertTriangle, CheckCircle, Bell } from 'lucide-react';
+import { Truck, AlertTriangle, CheckCircle } from 'lucide-react';
 
 // Define minimal types for what we expect from the API
 interface Consignment {
@@ -16,23 +16,10 @@ interface Consignment {
   // Add more fields if needed
 }
 
-interface Notification {
-  _id: string;
-  grNo: string;
-  title: string;
-  message: string;
-  type: string;
-  activityDate?: string;
-  details?: any;
-  createdAt: string;
-  read: boolean;
-}
-
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function ConsignmentDashboard() {
   const [consignments, setConsignments] = useState<Consignment[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,21 +28,13 @@ export default function ConsignmentDashboard() {
       setLoading(true);
       setError(null);
 
-      // 1. Fetch consignments
+      // Fetch consignments
       const consRes = await fetch(`${API_URL}/api/consignments`);
       if (!consRes.ok) {
         throw new Error(`Failed to fetch consignments: ${consRes.status}`);
       }
       const consData = await consRes.json();
       setConsignments(consData.consignments || []);
-
-      // 2. Fetch notifications
-      const notifRes = await fetch(`${API_URL}/api/notifications`);
-      if (!notifRes.ok) {
-        throw new Error(`Failed to fetch notifications: ${notifRes.status}`);
-      }
-      const notifData = await notifRes.json();
-      setNotifications(notifData.notifications || []);
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
@@ -96,50 +75,8 @@ export default function ConsignmentDashboard() {
     <div className="p-6 space-y-8">
       {/* Header */}
       <h1 className="text-3xl font-bold flex items-center gap-3">
-        <Bell className="text-amber-600 w-8 h-8" />
         Dashboard
       </h1>
-
-      {/* Notifications Section */}
-      <section>
-        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-          <Bell className="w-5 h-5 text-amber-600" />
-          Recent Updates
-        </h2>
-
-        {notifications.length === 0 ? (
-          <p className="text-gray-500 italic">No new updates yet</p>
-        ) : (
-          <div className="space-y-3">
-            {notifications.map((notif) => (
-              <div
-                key={notif._id}
-                className={`bg-white border-l-4 p-4 rounded shadow-sm flex justify-between items-start ${
-                  notif.type === 'update' ? 'border-amber-500' : 'border-blue-500'
-                }`}
-              >
-                <div className="flex-1">
-                  <p className="font-medium text-gray-900">{notif.title}</p>
-                  <p className="text-sm text-gray-600 mt-1">{notif.message}</p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    GR: <span className="font-mono">{notif.grNo}</span> •{' '}
-                    {new Date(notif.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full font-medium ${
-                    notif.type === 'update'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-blue-100 text-blue-800'
-                  }`}
-                >
-                  {notif.type}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
 
       {/* Consignments Section */}
       <section>

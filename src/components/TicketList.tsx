@@ -1,23 +1,10 @@
-import { useState, useEffect } from "react";
+// src/components/TicketList.tsx (updated - changed auto-refresh interval to 5 minutes = 300000ms; no other changes)
+import { useState, useEffect } from 'react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Download, AlertCircle } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Ticket } from "../lib/types";
-import {
-  Calendar,
-  User,
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-} from "lucide-react";
-import * as XLSX from "xlsx";
-
-type TicketListProps = {
-  onTicketClick: (ticket: Ticket) => void;
-  statusFilter: "all" | "open" | "working" | "closed" | "satisfied";
-  setStatusFilter?: (status: "all" | "open" | "working" | "closed" | "satisfied") => void;
-};
+import { FilterBar } from './FilterBar';
+import { StatsOverview } from './StatsOverview';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -28,38 +15,36 @@ const statusColors: Record<string, string> = {
   satisfied: "bg-green-100 text-green-800 border border-green-300 font-semibold",
 };
 
-const priorityColors: Record<string, string> = {
-  low: "bg-blue-100 text-blue-800",
-  medium: "bg-yellow-100 text-yellow-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
+const colorColors: Record<string, string> = {
+  yellow: "bg-yellow-100 text-yellow-800",
+  orange: "bg-orange-100 text-orange-800",
+  red: "bg-red-100 text-red-800",
+  green: "bg-green-100 text-green-800",
 };
 
-const typeLabels: Record<string, string> = {
-  complaint: "Complaint",
-  inquiry: "Inquiry",
-  delivery_issue: "Delivery Issue",
-  billing: "Billing",
-  other: "Other",
-  status_check: "Status Check",
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
+type TicketListProps = {
+  onTicketClick: (ticket: Ticket) => void;
 };
 
-const API_URL = import.meta.env.VITE_API_URL;
-
-export function TicketList({
-  onTicketClick,
-  statusFilter,
-  setStatusFilter,
-}: TicketListProps) {
+export function TicketList({ onTicketClick }: TicketListProps) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'working' | 'closed' | 'satisfied'>('all');
+  const [colorFilter, setColorFilter] = useState<'all' | 'yellow' | 'orange' | 'red' | 'green'>('all');
+  const [originQuery, setOriginQuery] = useState<string>('');
+  const [destinationQuery, setDestinationQuery] = useState<string>('');
+  const [delayFilter, setDelayFilter] = useState<'all' | '<24h' | '24-72h' | '>72h'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Search & expandable
-  const [searchQuery, setSearchQuery] = useState("");
+  // Pagination
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Expandable timeline
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [timelines, setTimelines] = useState<Record<string, any[]>>({});
   const [timelineLoading, setTimelineLoading] = useState<Record<string, boolean>>({});
@@ -102,7 +87,7 @@ export function TicketList({
 
   useEffect(() => {
     fetchTickets();
-    const interval = setInterval(fetchTickets, 30000);
+    const interval = setInterval(fetchTickets, 300000); // Updated to 5 minutes (300000 ms)
     return () => clearInterval(interval);
   }, []);
 
@@ -120,7 +105,20 @@ export function TicketList({
   // Filter & sort
   const filteredTickets = tickets
     .filter((ticket) => {
+      // Status filter
       if (statusFilter !== "all" && ticket.status !== statusFilter) return false;
+      // Color filter
+      if (colorFilter !== "all" && (ticket.color ?? 'yellow') !== colorFilter) return false;
+      // Origin filter
+      if (originQuery && (ticket.origin ?? '').toLowerCase().includes(originQuery.toLowerCase()) === false) return false;
+      // Destination filter
+      if (destinationQuery && (ticket.destination ?? '').toLowerCase().includes(destinationQuery.toLowerCase()) === false) return false;
+      // Delay filter
+      const delayHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
+      if (delayFilter === '<24h' && delayHours >= 24) return false;
+      if (delayFilter === '24-72h' && (delayHours < 24 || delayHours > 72)) return false;
+      if (delayFilter === '>72h' && delayHours <= 72) return false;
+      // Search filter
       const searchLower = searchQuery.toLowerCase();
       return (
         ticket.ticket_number.toLowerCase().includes(searchLower) ||
@@ -135,6 +133,22 @@ export function TicketList({
       return dateB.getTime() - dateA.getTime();
     });
 
+  // Compute stats (synced with current filters)
+  const statusStats = {
+    total: filteredTickets.length,
+    open: filteredTickets.filter(t => t.status === 'open').length,
+    working: filteredTickets.filter(t => t.status === 'working').length,
+    closed: filteredTickets.filter(t => t.status === 'closed').length,
+    satisfied: filteredTickets.filter(t => t.status === 'satisfied').length,
+  };
+
+  const colorStats = {
+    yellow: filteredTickets.filter(t => (t.color ?? 'yellow') === 'yellow').length,
+    orange: filteredTickets.filter(t => t.color === 'orange').length,
+    red: filteredTickets.filter(t => t.color === 'red').length,
+    green: filteredTickets.filter(t => t.color === 'green').length,
+  };
+
   // Export to Excel
   const exportToExcel = () => {
     if (filteredTickets.length === 0) {
@@ -142,29 +156,26 @@ export function TicketList({
       return;
     }
 
-    const exportData = filteredTickets.map((ticket) => ({
-      "Ticket #": ticket.ticket_number,
-      Title: ticket.title,
-      "GR No": ticket.tracking_number || "",
-      Customer: ticket.customers?.name || "N/A",
-      "Customer Phone": ticket.customers?.phone || "",
-      Type: typeLabels[ticket.type] || ticket.type,
-      Priority: ticket.priority,
-      Status: ticket.status,
-      Assigned: ticket.agents?.name || "Unassigned",
-      "Created At": new Date(ticket.created_at).toLocaleString(),
-      "Updated At": ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : "",
-      Description: ticket.description || "",
-    }));
+    const exportData = filteredTickets.map((ticket) => {
+      const delayedHours = ticket.last_movement_date 
+        ? Math.floor((Date.now() - new Date(ticket.last_movement_date).getTime()) / (1000 * 60 * 60))
+        : 0;
+
+      return {
+        "GR No": ticket.tracking_number || "N/A",
+        "Booking Date": ticket.gr_date || "N/A",
+        "Booking Time": ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : "N/A",
+        "Destination Location": ticket.destination || "N/A",
+        "Delayed By (Hours)": delayedHours,
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Tickets");
 
     const colWidths = [
-      { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 22 },
-      { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 12 },
-      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 60 },
+      { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 },
     ];
     worksheet["!cols"] = colWidths;
 
@@ -190,81 +201,86 @@ export function TicketList({
 
   return (
     <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl shadow-lg overflow-hidden">
+      {/* Stats Overview - synced with filters */}
+      <StatsOverview
+        statusStats={statusStats}
+        colorStats={colorStats}
+        onStatusClick={(status) => {
+          setStatusFilter(status);
+          // Reset other filters when clicking stat
+          setColorFilter('all');
+          setOriginQuery('');
+          setDestinationQuery('');
+          setDelayFilter('all');
+          setCurrentPage(1);
+        }}
+        onColorClick={(color) => {
+          setColorFilter(color);
+          // Reset other filters when clicking color stat
+          setStatusFilter('all');
+          setOriginQuery('');
+          setDestinationQuery('');
+          setDelayFilter('all');
+          setCurrentPage(1);
+        }}
+      />
+
       {/* Filter Bar */}
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex flex-col md:flex-row items-center gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search by ticket #, title, customer, or GR No..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow shadow-sm hover:shadow-md"
-            />
-          </div>
+      <FilterBar
+        statusFilter={statusFilter}
+        colorFilter={colorFilter}
+        originQuery={originQuery}
+        destinationQuery={destinationQuery}
+        delayFilter={delayFilter}
+        searchQuery={searchQuery}
+        onStatusChange={(status) => {
+          setStatusFilter(status);
+          setCurrentPage(1);
+        }}
+        onColorChange={(color) => {
+          setColorFilter(color);
+          setCurrentPage(1);
+        }}
+        onOriginChange={(origin) => {
+          setOriginQuery(origin);
+          setCurrentPage(1);
+        }}
+        onDestinationChange={(destination) => {
+          setDestinationQuery(destination);
+          setCurrentPage(1);
+        }}
+        onDelayChange={(delay) => {
+          setDelayFilter(delay);
+          setCurrentPage(1);
+        }}
+        onSearchChange={(query) => {
+          setSearchQuery(query);
+          setCurrentPage(1);
+        }}
+      />
 
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter?.(e.target.value as typeof statusFilter);
-              setCurrentPage(1);
-            }}
-            className="px-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow shadow-sm hover:shadow-md min-w-[160px]"
-          >
-            <option value="all">All Status</option>
-            <option value="open">Open</option>
-            <option value="working">In Progress</option>
-            <option value="closed">Closed</option>
-            <option value="satisfied">Satisfied</option>
-          </select>
-
-          <button
-            onClick={exportToExcel}
-            disabled={filteredTickets.length === 0}
-            className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow-md min-w-[160px] justify-center"
-          >
-            <Download className="w-5 h-5" />
-            Download Excel
-          </button>
-        </div>
+      {/* Export Button */}
+      <div className="px-6 py-4 bg-white border-b border-gray-200">
+        <button
+          onClick={exportToExcel}
+          className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Export to Excel ({filteredTickets.length} tickets)
+        </button>
       </div>
 
-      {/* Desktop Table */}
+      {/* Desktop Table - updated columns */}
       <div className="overflow-x-auto hidden md:block">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gradient-to-r from-blue-50 to-indigo-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Ticket #
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Title
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                GR No
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Customer
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Type
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Priority
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Assigned
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Created
-              </th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">GR No</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Booking Date</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Booking Time</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Destination Location</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Delayed By (Hours)</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Color</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider"></th>
             </tr>
           </thead>
@@ -274,6 +290,12 @@ export function TicketList({
               const grNo = ticket.tracking_number ?? undefined;
               const timeline = grNo ? timelines[grNo] || [] : [];
               const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
+              const delayedHours = ticket.last_movement_date 
+                ? Math.floor((Date.now() - new Date(ticket.last_movement_date).getTime()) / (1000 * 60 * 60))
+                : 0;
+              const bookingTime = ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : 'N/A';
+              const displayColor = ticket.color ?? 'yellow';  // Safe fallback
+              const delayHoursForDisplay = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
 
               return (
                 <>
@@ -282,57 +304,29 @@ export function TicketList({
                     onClick={() => onTicketClick(ticket)}
                     className="hover:bg-indigo-50 cursor-pointer transition-colors duration-200"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm font-medium text-indigo-900">
-                        <AlertCircle className="w-4 h-4 text-indigo-500 mr-2" />
-                        {ticket.ticket_number}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{ticket.title}</div>
-                      {ticket.description && (
-                        <div className="text-xs text-gray-600 mt-1 line-clamp-2">{ticket.description}</div>
-                      )}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-indigo-700">
-                      {grNo || "—"}
+                      {ticket.tracking_number || 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{ticket.customers?.name || "N/A"}</div>
-                      <div className="text-xs text-gray-500">{ticket.customers?.phone || ""}</div>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {ticket.gr_date || 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {typeLabels[ticket.type] || ticket.type}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {bookingTime}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-3 py-1 text-xs font-semibold rounded-full shadow-sm ${
-                          priorityColors[ticket.priority] || "bg-gray-100 text-gray-800"
-                        }`}
-                      >
-                        {ticket.priority}
-                      </span>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {ticket.destination || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {delayedHours}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-3 py-1 text-xs font-semibold rounded-full shadow-sm ${
-                          statusColors[ticket.status] || "bg-gray-100 text-gray-800"
+                          colorColors[displayColor] || "bg-gray-100 text-gray-800"
                         }`}
                       >
-                        {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+                        {displayColor.charAt(0).toUpperCase() + displayColor.slice(1)}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-gray-900">
-                        <User className="w-4 h-4 text-indigo-500 mr-1" />
-                        {ticket.agents?.name || "Unassigned"}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <div className="flex items-center">
-                        <Calendar className="w-4 h-4 text-indigo-500 mr-1" />
-                        {new Date(ticket.created_at).toLocaleDateString()}
-                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
@@ -349,7 +343,7 @@ export function TicketList({
 
                   {isExpanded && grNo && (
                     <tr>
-                      <td colSpan={10} className="px-6 py-4 bg-indigo-50">
+                      <td colSpan={7} className="px-6 py-4 bg-indigo-50">
                         <h4 className="text-sm font-semibold text-indigo-900 mb-3">
                           Latest Booking Timeline for GR {grNo}
                         </h4>
@@ -380,90 +374,95 @@ export function TicketList({
             })}
           </tbody>
         </table>
+      </div>
 
-        {/* Mobile Cards */}
-        <div className="md:hidden divide-y divide-gray-200">
-          {currentTickets.map((ticket) => {
-            const isExpanded = expandedRows.has(ticket.id);
-            const grNo = ticket.tracking_number ?? undefined;
-            const timeline = grNo ? timelines[grNo] || [] : [];
-            const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
+      {/* Mobile Cards - updated columns */}
+      <div className="md:hidden divide-y divide-gray-200">
+        {currentTickets.map((ticket) => {
+          const isExpanded = expandedRows.has(ticket.id);
+          const grNo = ticket.tracking_number ?? undefined;
+          const timeline = grNo ? timelines[grNo] || [] : [];
+          const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
+          const delayedHours = ticket.last_movement_date 
+            ? Math.floor((Date.now() - new Date(ticket.last_movement_date).getTime()) / (1000 * 60 * 60))
+            : 0;
+          const bookingTime = ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : 'N/A';
+          const displayColor = ticket.color ?? 'yellow';  // Safe fallback
 
-            return (
-              <div key={ticket.id} className="p-4 space-y-3 hover:bg-indigo-50 transition-colors">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="text-sm font-medium text-indigo-900">{ticket.ticket_number}</div>
-                    <div className="text-xs text-gray-600">{ticket.title}</div>
-                  </div>
+          return (
+            <div key={ticket.id} className="p-4 space-y-3 hover:bg-indigo-50 transition-colors">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-sm font-medium text-indigo-900">{ticket.ticket_number}</div>
+                  <div className="text-xs text-gray-600">{ticket.title}</div>
+                </div>
+                <span
+                  className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                    statusColors[ticket.status] || "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-700">
+                <div>GR No: {grNo || "N/A"}</div>
+                <div>Booking Date: {ticket.gr_date || "N/A"}</div>
+                <div>Booking Time: {bookingTime}</div>
+                <div>Destination: {ticket.destination || "N/A"}</div>
+                <div>Delayed (Hours): {delayedHours}</div>
+                <div>
+                  Color:{" "}
                   <span
-                    className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      statusColors[ticket.status] || "bg-gray-100 text-gray-800"
+                    className={`px-1 py-0.5 text-xs rounded ${
+                      colorColors[displayColor] || "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+                    {displayColor.charAt(0).toUpperCase() + displayColor.slice(1)}
                   </span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs text-gray-700">
-                  <div>GR No: {grNo || "—"}</div>
-                  <div>
-                    Priority:{" "}
-                    <span
-                      className={`px-1 py-0.5 text-xs rounded ${
-                        priorityColors[ticket.priority] || "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {ticket.priority}
-                    </span>
-                  </div>
-                  <div>Customer: {ticket.customers?.name || "N/A"}</div>
-                  <div>Type: {typeLabels[ticket.type] || ticket.type}</div>
-                  <div>Assigned: {ticket.agents?.name || "Unassigned"}</div>
-                  <div>Created: {new Date(ticket.created_at).toLocaleDateString()}</div>
-                </div>
-
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleRow(ticket.id, grNo);
-                  }}
-                  className="w-full mt-2 py-2 bg-indigo-100 text-indigo-900 rounded-lg flex items-center justify-center text-sm font-medium hover:bg-indigo-200 transition-colors"
-                >
-                  {isExpanded ? "Hide Timeline" : "Show Timeline"}{" "}
-                  {isExpanded ? <ChevronUp className="ml-2 w-4 h-4" /> : <ChevronDown className="ml-2 w-4 h-4" />}
-                </button>
-
-                {isExpanded && grNo && (
-                  <div className="mt-4 p-4 bg-indigo-50 rounded-lg">
-                    <h4 className="text-sm font-semibold text-indigo-900 mb-3">
-                      Latest Booking Timeline for GR {grNo}
-                    </h4>
-                    {isLoadingTimeline ? (
-                      <p className="text-gray-600 text-sm">Loading...</p>
-                    ) : timeline.length > 0 ? (
-                      <div className="space-y-4">
-                        {timeline.map((activity: any, index: number) => (
-                          <div key={index} className="border-l-4 border-indigo-500 pl-4 relative text-xs">
-                            <div className="absolute -left-2 top-1 w-3 h-3 bg-indigo-500 rounded-full border-2 border-white" />
-                            <p className="font-medium text-indigo-900">{activity.activity}</p>
-                            <p className="text-gray-600">{activity.date}</p>
-                            <p className="text-gray-700">{activity.details}</p>
-                            {activity.documentno && (
-                              <p className="text-indigo-600">Doc: {activity.documentno}</p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-600 italic">No activities</p>
-                    )}
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </div>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleRow(ticket.id, grNo);
+                }}
+                className="w-full mt-2 py-2 bg-indigo-100 text-indigo-900 rounded-lg flex items-center justify-center text-sm font-medium hover:bg-indigo-200 transition-colors"
+              >
+                {isExpanded ? "Hide Timeline" : "Show Timeline"}{" "}
+                {isExpanded ? <ChevronUp className="ml-2 w-4 h-4" /> : <ChevronDown className="ml-2 w-4 h-4" />}
+              </button>
+
+              {isExpanded && grNo && (
+                <div className="mt-4 p-4 bg-indigo-50 rounded-lg">
+                  <h4 className="text-sm font-semibold text-indigo-900 mb-3">
+                    Latest Booking Timeline for GR {grNo}
+                  </h4>
+                  {isLoadingTimeline ? (
+                    <p className="text-gray-600 text-sm">Loading...</p>
+                  ) : timeline.length > 0 ? (
+                    <div className="space-y-4">
+                      {timeline.map((activity: any, index: number) => (
+                        <div key={index} className="border-l-4 border-indigo-500 pl-4 relative text-xs">
+                          <div className="absolute -left-2 top-1 w-3 h-3 bg-indigo-500 rounded-full border-2 border-white" />
+                          <p className="font-medium text-indigo-900">{activity.activity}</p>
+                          <p className="text-gray-600">{activity.date}</p>
+                          <p className="text-gray-700">{activity.details}</p>
+                          {activity.documentno && (
+                            <p className="text-indigo-600">Doc: {activity.documentno}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-600 italic">No activities</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Pagination */}

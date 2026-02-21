@@ -1,3 +1,4 @@
+// src/components/TicketDetailModal.tsx (corrected - handle optional color with fallbacks)
 import { useState, useEffect } from 'react';
 import { X, Calendar, User, Package, MessageSquare } from 'lucide-react';
 import { Ticket, Agent, TicketComment } from '../lib/types';
@@ -13,11 +14,22 @@ const statusColors = {
   working: 'bg-amber-100 text-amber-800 border border-amber-300',
   closed: 'bg-gray-200 text-gray-800 border border-gray-300',
   satisfied: 'bg-green-100 text-green-800 border border-green-300 font-semibold',
-} as const; // ← use as const to make it a literal type
+} as const;
 
-// Helper to safely get color (prevents TS error)
+const colorBadges = {
+  yellow: 'bg-yellow-200 text-yellow-800',
+  orange: 'bg-orange-200 text-orange-800',
+  red: 'bg-red-200 text-red-800',
+  green: 'bg-green-200 text-green-800',
+} as const;
+
+// Helper to safely get color
 const getStatusColor = (status: string): string => {
   return statusColors[status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800';
+};
+
+const getColorBadge = (color: string | undefined): string => {
+  return colorBadges[color as keyof typeof colorBadges] || 'bg-gray-100 text-gray-800';
 };
 
 export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailModalProps) {
@@ -32,10 +44,12 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
     status: string;
     assigned_to: string;
     priority: string;
+    color: string;
   }>({
     status: ticket.status,
     assigned_to: ticket.assigned_to || '',
     priority: ticket.priority,
+    color: ticket.color ?? 'yellow',  // Fallback to 'yellow'
   });
 
   useEffect(() => {
@@ -76,6 +90,7 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
           status: formData.status,
           assigned_to: formData.assigned_to || null,
           priority: formData.priority,
+          color: formData.color,
         }),
       });
 
@@ -117,6 +132,8 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
       alert('Error adding comment: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
+
+  const displayColor = ticket.color ?? 'yellow';  // Safe fallback for display
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -181,6 +198,20 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                <select
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="yellow">Yellow</option>
+                  <option value="orange">Orange</option>
+                  <option value="red">Red</option>
+                  <option value="green">Green</option>
+                </select>
+              </div>
+
               <button
                 onClick={handleUpdate}
                 disabled={loading}
@@ -226,13 +257,20 @@ export function TicketDetailModal({ ticket, onClose, onUpdate }: TicketDetailMod
                     <span className="text-gray-600">Source:</span>
                     <span className="ml-2 font-medium">{ticket.source}</span>
                   </div>
-                  <div className="pt-2">
+                  <div className="pt-2 flex gap-2">
                     <span
                       className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         getStatusColor(ticket.status)
                       }`}
                     >
-                      Current Status: {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+                      Status: {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+                    </span>
+                    <span
+                      className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        getColorBadge(displayColor)
+                      }`}
+                    >
+                      Color: {displayColor.charAt(0).toUpperCase() + displayColor.slice(1)}
                     </span>
                   </div>
                 </div>
