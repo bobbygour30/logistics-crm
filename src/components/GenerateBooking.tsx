@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Package, Search, Truck, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Package, Search, Truck, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 /* -------------------- Helpers -------------------- */
 
@@ -83,6 +83,7 @@ function Detail({ label, value }: { label: string; value: any }) {
 
 const API_URL = import.meta.env.VITE_API_URL;
 const CLIENT_ID = import.meta.env.VITE_GREENTRANS_CLIENT_ID;
+const ITEMS_PER_PAGE = 10;
 
 /* -------------------- Component -------------------- */
 
@@ -94,6 +95,8 @@ export function GenerateBooking() {
   const [data, setData] = useState<BookingFormData | null>(null);
 
   const [trackedConsignments, setTrackedConsignments] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [loadingTracked, setLoadingTracked] = useState(true);
 
   const [selectedGr, setSelectedGr] = useState<string | null>(null);
@@ -101,20 +104,30 @@ export function GenerateBooking() {
   const [trackedDetailData, setTrackedDetailData] = useState<BookingFormData | null>(null);
   const [trackedDetailError, setTrackedDetailError] = useState<string | null>(null);
 
-  const loadTrackedConsignments = async () => {
+  const loadTrackedConsignments = useCallback(async () => {
     try {
       setLoadingTracked(true);
-      const res = await fetch(`${API_URL}/api/consignments`);
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: ITEMS_PER_PAGE.toString(),
+      });
+      
+      const res = await fetch(`${API_URL}/api/consignments?${params}`);
       if (!res.ok) throw new Error('Failed to load tracked consignments');
       const json = await res.json();
-      setTrackedConsignments(json.consignments || json || []);
+      setTrackedConsignments(json.consignments || []);
+      setTotalCount(json.total || 0);
     } catch (err) {
       console.error('Error loading tracked consignments:', err);
       setError('Could not load tracked consignments');
     } finally {
       setLoadingTracked(false);
     }
-  };
+  }, [currentPage]);
+
+  useEffect(() => {
+    loadTrackedConsignments();
+  }, [loadTrackedConsignments]);
 
   const syncToDatabase = async (gr: string, bookingData: any, trackingData: any) => {
     try {
@@ -263,12 +276,17 @@ export function GenerateBooking() {
     }
   };
 
-  useEffect(() => {
-    loadTrackedConsignments();
-  }, []);
-
   const displayData = data || trackedDetailData;
   const isTrackedView = !!trackedDetailData;
+
+  // Pagination handlers
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+  
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
@@ -278,6 +296,7 @@ export function GenerateBooking() {
       </div>
 
       <div className="space-y-8">
+        {/* Search Section */}
         <div className="bg-white rounded-xl shadow p-6">
           <div className="flex gap-3 mb-6">
             <input
@@ -291,7 +310,7 @@ export function GenerateBooking() {
             <button
               onClick={handleFetch}
               disabled={fetching || !grNo.trim()}
-              className={`px-6 py-2 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 min-w-[140px] ${
+              className={`px-6 py-2 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 min-w-[140px] justify-center ${
                 fetching ? 'cursor-wait' : ''
               }`}
             >
@@ -397,10 +416,11 @@ export function GenerateBooking() {
           )}
         </div>
 
+        {/* Tracked GRs Section */}
         <div className="bg-white rounded-xl shadow p-6">
           <h3 className="text-xl font-bold mb-5 flex items-center gap-3">
             <Truck className="w-6 h-6 text-green-600" />
-            Tracked GRs
+            Tracked GRs ({totalCount})
           </h3>
 
           {loadingTracked ? (
@@ -413,52 +433,80 @@ export function GenerateBooking() {
               No consignments tracked yet
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[500px]">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="p-3 text-left font-medium">GR No</th>
-                    <th className="p-3 text-left font-medium">Status</th>
-                    <th className="p-3 text-left font-medium hidden md:table-cell">Last Updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trackedConsignments.map((c) => (
-                    <tr
-                      key={c.GRNo}
-                      onClick={() => handleSelectTracked(c.GRNo)}
-                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${
-                        selectedGr === c.GRNo ? 'bg-blue-50' : ''
-                      }`}
-                    >
-                      <td className="p-3 font-mono font-medium">{c.GRNo}</td>
-                      <td className="p-3">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded text-xs font-medium ${
-                            c.currentStatus === 'delivered'
-                              ? 'bg-green-100 text-green-800'
-                              : c.currentStatus?.toLowerCase().includes('delay') ||
-                                c.currentStatus === 'In Transit'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {c.currentStatus || 'Tracking'}
-                        </span>
-                      </td>
-                      <td className="p-3 text-gray-600 text-xs hidden md:table-cell">
-                        {c.updated_at
-                          ? new Date(c.updated_at).toLocaleString('en-IN', {
-                              dateStyle: 'medium',
-                              timeStyle: 'short',
-                            })
-                          : '—'}
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[500px]">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="p-3 text-left font-medium">GR No</th>
+                      <th className="p-3 text-left font-medium">Status</th>
+                      <th className="p-3 text-left font-medium hidden md:table-cell">Last Updated</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {trackedConsignments.map((c) => (
+                      <tr
+                        key={c.GRNo}
+                        onClick={() => handleSelectTracked(c.GRNo)}
+                        className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${
+                          selectedGr === c.GRNo ? 'bg-blue-50' : ''
+                        }`}
+                      >
+                        <td className="p-3 font-mono font-medium">{c.GRNo}</td>
+                        <td className="p-3">
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded text-xs font-medium ${
+                              c.currentStatus === 'delivered'
+                                ? 'bg-green-100 text-green-800'
+                                : c.currentStatus?.toLowerCase().includes('delay') ||
+                                  c.currentStatus === 'In Transit'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}
+                          >
+                            {c.currentStatus || 'Tracking'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-gray-600 text-xs hidden md:table-cell">
+                          {c.updatedAt
+                            ? new Date(c.updatedAt).toLocaleString('en-IN', {
+                                dateStyle: 'medium',
+                                timeStyle: 'short',
+                              })
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <div className="text-sm text-gray-600">
+                    Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => goToPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      className="p-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-sm font-medium">Page {currentPage} of {totalPages}</span>
+                    <button
+                      onClick={() => goToPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      className="p-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

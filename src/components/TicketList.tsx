@@ -1,12 +1,22 @@
-// src/components/TicketList.tsx (OPTIMIZED - Combined stats computation, debounced text filters, consistent delay calc, removed unused memos)
-import { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Download, AlertCircle } from 'lucide-react';
+// src/components/TicketList.tsx
+import { useState, useEffect, useMemo, useCallback, memo, useRef, useReducer } from 'react';
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  AlertCircle,
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Ticket } from "../lib/types";
 import { FilterBar } from './FilterBar';
 import { StatsOverview } from './StatsOverview';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 20; // Increased for better performance
+const DEBOUNCE_MS = 500;
+const MAX_CONCURRENT_TIMELINE = 3;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 const statusColors: Record<string, string> = {
   open: "bg-red-100 text-red-800 border border-red-300",
@@ -28,271 +38,429 @@ type TicketListProps = {
   onTicketClick: (ticket: Ticket) => void;
 };
 
-export function TicketList({ onTicketClick }: TicketListProps) {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// Cache for timeline data
+const timelineCache = new Map<string, { data: any[]; timestamp: number }>();
 
+// Reducer for state management
+type State = {
+  tickets: Ticket[];
+  totalCount: number;
+  loading: boolean;
+  error: string | null;
+  stats: {
+    statusStats: { total: number; open: number; working: number; closed: number; satisfied: number };
+    colorStats: { yellow: number; orange: number; red: number; green: number };
+  } | null;
+};
+
+type Action =
+  | { type: 'FETCH_START' }
+  | { type: 'FETCH_SUCCESS'; payload: { tickets: Ticket[]; total: number; stats: State['stats'] } }
+  | { type: 'FETCH_ERROR'; payload: string }
+  | { type: 'CLEAR_ERROR' };
+
+const initialState: State = {
+  tickets: [],
+  totalCount: 0,
+  loading: false,
+  error: null,
+  stats: null,
+};
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'FETCH_START':
+      return { ...state, loading: true, error: null };
+    case 'FETCH_SUCCESS':
+      return {
+        ...state,
+        tickets: action.payload.tickets,
+        totalCount: action.payload.total,
+        stats: action.payload.stats,
+        loading: false,
+        error: null,
+      };
+    case 'FETCH_ERROR':
+      return { ...state, loading: false, error: action.payload };
+    case 'CLEAR_ERROR':
+      return { ...state, error: null };
+    default:
+      return state;
+  }
+}
+
+function getColor(ticket: Ticket): string {
+  return (ticket as any).ticket_color ?? (ticket as any).color ?? 'yellow';
+}
+
+// Memoized row component
+const TimelineRow = memo(({
+  ticket,
+  isExpanded,
+  toggleRow,
+  timeline,
+  isLoadingTimeline,
+  onTicketClick,
+}: {
+  ticket: Ticket;
+  isExpanded: boolean;
+  toggleRow: (id: string, grNo?: string) => void;
+  timeline: any[];
+  isLoadingTimeline: boolean;
+  onTicketClick: (ticket: Ticket) => void;
+}) => {
+  const grNo = ticket.tracking_number ?? undefined;
+  const delayedHours = ticket.delay_duration_minutes
+    ? Math.floor(ticket.delay_duration_minutes / 60)
+    : 0;
+  const bookingTime = ticket.created_at
+    ? new Date(ticket.created_at).toLocaleTimeString()
+    : 'N/A';
+  const displayColor = getColor(ticket);
+
+  return (
+    <>
+      <tr
+        onClick={() => onTicketClick(ticket)}
+        className="hover:bg-indigo-50 cursor-pointer transition-colors duration-200"
+      >
+        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-indigo-700">
+          {ticket.tracking_number || 'N/A'}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          {ticket.gr_date || 'N/A'}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          {bookingTime}
+        </td>
+        <td className="px-6 py-4 text-sm text-gray-900">
+          {ticket.destination || 'N/A'}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          {delayedHours}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          <span
+            className={`px-3 py-1 text-xs font-semibold rounded-full shadow-sm ${
+              colorColors[displayColor] || "bg-gray-100 text-gray-800"
+            }`}
+          >
+            {displayColor.charAt(0).toUpperCase() + displayColor.slice(1)}
+          </span>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleRow(ticket.id, grNo);
+            }}
+            className="text-indigo-600 hover:text-indigo-900 transition-colors"
+            aria-label={isExpanded ? "Hide timeline" : "Show timeline"}
+          >
+            {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </button>
+        </td>
+      </tr>
+
+      {isExpanded && grNo && (
+        <tr>
+          <td colSpan={7} className="px-6 py-4 bg-indigo-50">
+            <h4 className="text-sm font-semibold text-indigo-900 mb-3">
+              Latest Booking Timeline for GR {grNo}
+            </h4>
+            {isLoadingTimeline ? (
+              <div className="flex items-center gap-2 text-gray-600 text-sm">
+                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                Loading timeline...
+              </div>
+            ) : timeline.length > 0 ? (
+              <div className="space-y-4 max-h-64 overflow-y-auto pr-4">
+                {timeline.map((activity: any, idx: number) => (
+                  <div key={idx} className="border-l-4 border-indigo-500 pl-4 relative">
+                    <div className="absolute -left-2 top-1.5 w-4 h-4 bg-indigo-500 rounded-full border-2 border-white shadow" />
+                    <p className="font-medium text-indigo-900 text-sm">{activity.activity}</p>
+                    <p className="text-xs text-gray-600">{activity.date}</p>
+                    <p className="text-xs text-gray-700 mt-1">{activity.details}</p>
+                    {activity.documentno && (
+                      <p className="text-xs text-indigo-600 mt-1">Document: {activity.documentno}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-600 text-sm italic">No timeline activities available</p>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+});
+
+TimelineRow.displayName = 'TimelineRow';
+
+export function TicketList({ onTicketClick }: TicketListProps) {
+  const [state, dispatch] = useReducer(reducer, initialState);
+  
   // Filters
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'working' | 'closed' | 'satisfied'>('all');
   const [colorFilter, setColorFilter] = useState<'all' | 'yellow' | 'orange' | 'red' | 'green'>('all');
-  const [originQuery, setOriginQuery] = useState<string>('');
-  const [debouncedOriginQuery, setDebouncedOriginQuery] = useState<string>('');
-  const [destinationQuery, setDestinationQuery] = useState<string>('');
-  const [debouncedDestinationQuery, setDebouncedDestinationQuery] = useState<string>('');
+  const [originQuery, setOriginQuery] = useState('');
+  const [debouncedOrigin, setDebouncedOrigin] = useState('');
+  const [destinationQuery, setDestinationQuery] = useState('');
+  const [debouncedDestination, setDebouncedDestination] = useState('');
   const [delayFilter, setDelayFilter] = useState<'all' | '<24h' | '24-72h' | '>72h'>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   // Pagination
-  const [currentPage, setCurrentPage] = useState<number>(1);
-
-  // Expandable timeline
+  const [currentPage, setCurrentPage] = useState(1);
+  
+  // UI state
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [timelines, setTimelines] = useState<Record<string, any[]>>({});
   const [timelineLoading, setTimelineLoading] = useState<Record<string, boolean>>({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchTickets = async (silent = false) => {
-    if (!silent) setLoading(true);
-    else setIsRefreshing(true);
-    setError(null);
+  // Concurrency control for timeline fetches
+  const pendingTimelineFetches = useRef<string[]>([]);
+  const activeFetches = useRef(0);
 
-    try {
-      const res = await fetch(`${API_URL}/api/tickets`);
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-      const data = await res.json();
-      setTickets(data.tickets || []);
-      if (!silent) setCurrentPage(1);
-    } catch (err: any) {
-      setError(err.message || "Failed to load tickets");
-    } finally {
-      if (!silent) setLoading(false);
-      else setIsRefreshing(false);
+  const processTimelineQueue = useCallback(() => {
+    if (activeFetches.current >= MAX_CONCURRENT_TIMELINE) return;
+    const grNo = pendingTimelineFetches.current.shift();
+    if (!grNo) return;
+
+    // Check cache first
+    const cached = timelineCache.get(grNo);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      setTimelines(prev => ({ ...prev, [grNo]: cached.data }));
+      processTimelineQueue();
+      return;
     }
-  };
 
-  const fetchTimeline = async (grNo: string, ticketId: string) => {
-    if (timelines[grNo]) return;
-    setTimelineLoading((prev) => ({ ...prev, [ticketId]: true }));
+    activeFetches.current++;
+    setTimelineLoading((prev) => ({ ...prev, [grNo]: true }));
 
-    try {
-      const res = await fetch(`${API_URL}/api/consignments/${encodeURIComponent(grNo)}`);
-      if (!res.ok) throw new Error(`Failed to fetch consignment: ${res.status}`);
-      const cons = await res.json();
-      setTimelines((prev) => ({
-        ...prev,
-        [grNo]: cons.trackingRaw?.consignmentactivitylist || [],
-      }));
-    } catch (err: any) {
-      console.error(`Failed to load timeline for GR ${grNo}:`, err.message);
-    } finally {
-      setTimelineLoading((prev) => ({ ...prev, [ticketId]: false }));
-    }
-  };
-
-  useEffect(() => {
-    fetchTickets(false);
-    const interval = setInterval(() => fetchTickets(true), 300000);
-    return () => clearInterval(interval);
+    fetch(`${API_URL}/api/consignments/${encodeURIComponent(grNo)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        const timelineData = data.trackingRaw?.consignmentactivitylist || [];
+        timelineCache.set(grNo, { data: timelineData, timestamp: Date.now() });
+        setTimelines((prev) => ({ ...prev, [grNo]: timelineData }));
+      })
+      .catch((err) => console.warn(`Timeline fetch failed for ${grNo}:`, err))
+      .finally(() => {
+        activeFetches.current--;
+        setTimelineLoading((prev) => ({ ...prev, [grNo]: false }));
+        processTimelineQueue();
+      });
   }, []);
 
-  // Debounce text filters
+  const fetchTimeline = useCallback(
+    (grNo: string) => {
+      if (timelines[grNo] || timelineLoading[grNo]) return;
+      
+      // Check cache again before queueing
+      const cached = timelineCache.get(grNo);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        setTimelines(prev => ({ ...prev, [grNo]: cached.data }));
+        return;
+      }
+      
+      pendingTimelineFetches.current.push(grNo);
+      processTimelineQueue();
+    },
+    [timelines, timelineLoading, processTimelineQueue]
+  );
+
+  // Build query params for API
+  const getQueryParams = useCallback(() => {
+    const params = new URLSearchParams({
+      page: currentPage.toString(),
+      limit: ITEMS_PER_PAGE.toString(),
+    });
+
+    if (statusFilter !== 'all') params.append('status', statusFilter);
+    if (colorFilter !== 'all') params.append('color', colorFilter);
+    if (debouncedOrigin) params.append('origin', debouncedOrigin);
+    if (debouncedDestination) params.append('destination', debouncedDestination);
+    if (delayFilter !== 'all') params.append('delay', delayFilter);
+    if (debouncedSearch) params.append('search', debouncedSearch);
+
+    return params;
+  }, [currentPage, statusFilter, colorFilter, debouncedOrigin, debouncedDestination, delayFilter, debouncedSearch]);
+
+  // Fetch tickets with pagination
+  const fetchTickets = useCallback(async (silent = false) => {
+    if (!silent) {
+      dispatch({ type: 'FETCH_START' });
+    } else {
+      setIsRefreshing(true);
+    }
+
+    try {
+      const params = getQueryParams();
+      const res = await fetch(`${API_URL}/api/tickets?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      
+      dispatch({
+        type: 'FETCH_SUCCESS',
+        payload: {
+          tickets: data.tickets,
+          total: data.total,
+          stats: data.stats,
+        },
+      });
+    } catch (err: any) {
+      dispatch({ type: 'FETCH_ERROR', payload: err.message || "Failed to load tickets" });
+    } finally {
+      if (silent) setIsRefreshing(false);
+    }
+  }, [getQueryParams]);
+
+  // Debounce filters
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-    }, 500);
-    return () => clearTimeout(timeoutId);
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedOriginQuery(originQuery);
-    }, 500);
-    return () => clearTimeout(timeoutId);
+    const timer = setTimeout(() => setDebouncedOrigin(originQuery), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [originQuery]);
 
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedDestinationQuery(destinationQuery);
-    }, 500);
-    return () => clearTimeout(timeoutId);
+    const timer = setTimeout(() => setDebouncedDestination(destinationQuery), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [destinationQuery]);
 
-  const toggleRow = (ticketId: string, grNo?: string) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(ticketId)) {
-      newExpanded.delete(ticketId);
-    } else {
-      newExpanded.add(ticketId);
-      if (grNo) fetchTimeline(grNo, ticketId);
-    }
-    setExpandedRows(newExpanded);
-  };
-
-  const sortedTickets = useMemo(() => {
-    return [...tickets].sort((a, b) => {
-      const dateA = new Date(a.updated_at || a.created_at || 0);
-      const dateB = new Date(b.updated_at || b.created_at || 0);
-      return dateB.getTime() - dateA.getTime();
-    });
-  }, [tickets]);
-
-  // ────────────────────────────────────────────────
-  // SAFE color helper — MUST be declared BEFORE useMemo that uses it
-  // ────────────────────────────────────────────────
-  const getColor = (ticket: Ticket): string =>
-    (ticket as any).ticket_color ?? (ticket as any).color ?? 'yellow';
-
-  // Optimized global stats — single loop over all tickets
-  const globalStats = useMemo(() => {
-    const statusCounts = {
-      total: sortedTickets.length,
-      open: 0,
-      working: 0,
-      closed: 0,
-      satisfied: 0,
-    };
-    const colorCounts = {
-      yellow: 0,
-      orange: 0,
-      red: 0,
-      green: 0,
-    };
-
-    sortedTickets.forEach((ticket) => {
-      const status = ticket.status;
-      switch (status) {
-        case 'open':
-          statusCounts.open++;
-          break;
-        case 'working':
-          statusCounts.working++;
-          break;
-        case 'closed':
-          statusCounts.closed++;
-          break;
-        case 'satisfied':
-          statusCounts.satisfied++;
-          break;
-      }
-
-      const color = getColor(ticket);
-      switch (color) {
-        case 'yellow':
-          colorCounts.yellow++;
-          break;
-        case 'orange':
-          colorCounts.orange++;
-          break;
-        case 'red':
-          colorCounts.red++;
-          break;
-        case 'green':
-          colorCounts.green++;
-          break;
-      }
-    });
-
-    return {
-      statusStats: statusCounts,
-      colorStats: colorCounts,
-    };
-  }, [sortedTickets]);
-
-  const filteredTickets = useMemo(() => {
-    return sortedTickets.filter((ticket) => {
-      if (statusFilter !== "all" && ticket.status !== statusFilter) return false;
-      if (colorFilter !== "all" && getColor(ticket) !== colorFilter) return false;
-
-      if (debouncedOriginQuery && !(ticket.origin ?? '').toLowerCase().includes(debouncedOriginQuery.toLowerCase())) return false;
-      if (debouncedDestinationQuery && !(ticket.destination ?? '').toLowerCase().includes(debouncedDestinationQuery.toLowerCase())) return false;
-
-      const delayHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
-      if (delayFilter === '<24h' && delayHours >= 24) return false;
-      if (delayFilter === '24-72h' && (delayHours < 24 || delayHours > 72)) return false;
-      if (delayFilter === '>72h' && delayHours <= 72) return false;
-
-      const searchLower = debouncedSearchQuery.toLowerCase();
-      return (
-        ticket.ticket_number.toLowerCase().includes(searchLower) ||
-        ticket.title.toLowerCase().includes(searchLower) ||
-        (ticket.tracking_number?.toLowerCase().includes(searchLower) ?? false) ||
-        (ticket.customers?.name?.toLowerCase().includes(searchLower) ?? false)
-      );
-    });
-  }, [sortedTickets, statusFilter, colorFilter, debouncedOriginQuery, debouncedDestinationQuery, delayFilter, debouncedSearchQuery]);
-
+  // Fetch when filters or pagination change
   useEffect(() => {
-    const totalPages = Math.ceil(filteredTickets.length / ITEMS_PER_PAGE);
-    if (filteredTickets.length === 0) {
-      if (currentPage !== 1) setCurrentPage(1);
-    } else if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    fetchTickets(false);
+  }, [currentPage, statusFilter, colorFilter, debouncedOrigin, debouncedDestination, delayFilter, debouncedSearch]);
+
+  // Background refresh
+  useEffect(() => {
+    const interval = setInterval(() => fetchTickets(true), 300000);
+    return () => clearInterval(interval);
+  }, [fetchTickets]);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+    setExpandedRows(new Set());
+  }, [statusFilter, colorFilter, debouncedOrigin, debouncedDestination, delayFilter, debouncedSearch]);
+
+  const toggleRow = useCallback(
+    (ticketId: string, grNo?: string) => {
+      setExpandedRows((prev) => {
+        const next = new Set(prev);
+        if (next.has(ticketId)) {
+          next.delete(ticketId);
+        } else {
+          next.add(ticketId);
+          if (grNo) fetchTimeline(grNo);
+        }
+        return next;
+      });
+    },
+    [fetchTimeline]
+  );
+
+  const exportToExcel = useCallback(async () => {
+    try {
+      // Fetch all filtered data for export
+      const params = getQueryParams();
+      params.set('page', '1');
+      params.set('limit', state.totalCount.toString());
+      
+      const res = await fetch(`${API_URL}/api/tickets/export?${params}`);
+      if (!res.ok) throw new Error('Failed to fetch export data');
+      
+      const data = await res.json();
+      
+      const exportData = data.tickets.map((t: any) => ({
+        "GR No": t.tracking_number || "N/A",
+        "Booking Date": t.gr_date || "N/A",
+        "Booking Time": t.created_at ? new Date(t.created_at).toLocaleTimeString() : "N/A",
+        "Destination Location": t.destination || "N/A",
+        "Delayed By (Hours)": t.delay_duration_minutes ? Math.floor(t.delay_duration_minutes / 60) : 0,
+        "Status": t.status,
+        "Color": getColor(t),
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Tickets");
+      ws["!cols"] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 10 }];
+      XLSX.writeFile(wb, `tickets_export_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export tickets. Please try again.');
     }
-  }, [filteredTickets.length, currentPage]);
+  }, [getQueryParams, state.totalCount]);
 
-  const exportToExcel = () => {
-    if (filteredTickets.length === 0) {
-      alert("No tickets to export");
-      return;
-    }
-    const exportData = filteredTickets.map((ticket) => {
-      const delayedHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
-      return {
-        "GR No": ticket.tracking_number || "N/A",
-        "Booking Date": ticket.gr_date || "N/A",
-        "Booking Time": ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : "N/A",
-        "Destination Location": ticket.destination || "N/A",
-        "Delayed By (Hours)": delayedHours,
-      };
-    });
+  const totalPages = Math.ceil(state.totalCount / ITEMS_PER_PAGE);
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Tickets");
-    worksheet["!cols"] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 }];
-    XLSX.writeFile(workbook, `tickets_export_${new Date().toISOString().slice(0,10)}.xlsx`);
-  };
+  const goToPage = useCallback(
+    (page: number) => {
+      if (page >= 1 && page <= totalPages) {
+        setCurrentPage(page);
+        setExpandedRows(new Set());
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    },
+    [totalPages]
+  );
 
-  const totalItems = filteredTickets.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentTickets = filteredTickets.slice(startIndex, endIndex);
+  if (state.loading && state.tickets.length === 0) {
+    return (
+      <div className="p-6 text-center">
+        <div className="inline-flex items-center gap-3 text-gray-600">
+          <div className="w-6 h-6 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          Loading tickets...
+        </div>
+      </div>
+    );
+  }
 
-  const goToPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-      setExpandedRows(new Set());
-    }
-  };
-
-  if (loading) return <div className="p-6 text-center text-gray-600">Loading tickets...</div>;
-  if (error) return <div className="p-6 text-center text-red-600">Error: {error}</div>;
+  if (state.error) {
+    return (
+      <div className="p-6 text-center">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-red-600 mb-4">Error: {state.error}</p>
+        <button
+          onClick={() => fetchTickets(false)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl shadow-lg overflow-hidden">
-      <StatsOverview
-        statusStats={globalStats.statusStats}
-        colorStats={globalStats.colorStats}
-        onStatusClick={(status) => {
-          setStatusFilter(status);
-          setColorFilter('all');
-          setOriginQuery('');
-          setDestinationQuery('');
-          setDelayFilter('all');
-          setCurrentPage(1);
-        }}
-        onColorClick={(color) => {
-          setColorFilter(color);
-          setStatusFilter('all');
-          setOriginQuery('');
-          setDestinationQuery('');
-          setDelayFilter('all');
-          setCurrentPage(1);
-        }}
-      />
+      {state.stats && (
+       <StatsOverview
+  statusStats={state.stats.statusStats}
+  colorStats={state.stats.colorStats}
+  onColorClick={(color) => {
+    setColorFilter(color);
+    // Optionally reset other filters when changing color
+    setStatusFilter('all');
+    setOriginQuery('');
+    setDestinationQuery('');
+    setDelayFilter('all');
+    setSearchQuery('');
+  }}
+/>
+      )}
 
       <FilterBar
         statusFilter={statusFilter}
@@ -301,12 +469,12 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         destinationQuery={destinationQuery}
         delayFilter={delayFilter}
         searchQuery={searchQuery}
-        onStatusChange={(status) => { setStatusFilter(status); setCurrentPage(1); }}
-        onColorChange={(color) => { setColorFilter(color); setCurrentPage(1); }}
-        onOriginChange={(origin) => { setOriginQuery(origin); setCurrentPage(1); }}
-        onDestinationChange={(destination) => { setDestinationQuery(destination); setCurrentPage(1); }}
-        onDelayChange={(delay) => { setDelayFilter(delay); setCurrentPage(1); }}
-        onSearchChange={(query) => { setSearchQuery(query); setCurrentPage(1); }}
+        onStatusChange={setStatusFilter}
+        onColorChange={setColorFilter}
+        onOriginChange={setOriginQuery}
+        onDestinationChange={setDestinationQuery}
+        onDelayChange={setDelayFilter}
+        onSearchChange={setSearchQuery}
       />
 
       {isRefreshing && (
@@ -316,14 +484,19 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         </div>
       )}
 
-      <div className="px-6 py-4 bg-white border-b border-gray-200">
+      <div className="px-6 py-4 bg-white border-b border-gray-200 flex justify-between items-center">
         <button
           onClick={exportToExcel}
-          className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+          disabled={state.tickets.length === 0}
+          className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4 mr-2" />
-          Export to Excel ({filteredTickets.length} tickets)
+          Export to Excel ({state.totalCount} tickets)
         </button>
+        
+        <div className="text-sm text-gray-600">
+          Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, state.totalCount)} of {state.totalCount}
+        </div>
       </div>
 
       {/* Desktop Table */}
@@ -341,88 +514,21 @@ export function TicketList({ onTicketClick }: TicketListProps) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {currentTickets.map((ticket) => {
+            {state.tickets.map((ticket) => {
               const isExpanded = expandedRows.has(ticket.id);
-              const grNo = ticket.tracking_number ?? undefined;
-              const timeline = grNo ? timelines[grNo] || [] : [];
-              const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
-              const delayedHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
-              const bookingTime = ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : 'N/A';
-              const displayColor = getColor(ticket);
+              const timeline = ticket.tracking_number ? timelines[ticket.tracking_number] || [] : [];
+              const isLoadingTimeline = ticket.tracking_number ? !!timelineLoading[ticket.tracking_number] : false;
 
               return (
-                <>
-                  <tr
-                    key={ticket.id}
-                    onClick={() => onTicketClick(ticket)}
-                    className="hover:bg-indigo-50 cursor-pointer transition-colors duration-200"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-indigo-700">
-                      {ticket.tracking_number || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {ticket.gr_date || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {bookingTime}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {ticket.destination || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {delayedHours}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-3 py-1 text-xs font-semibold rounded-full shadow-sm ${
-                          colorColors[displayColor] || "bg-gray-100 text-gray-800"
-                        }`}
-                      >
-                        {displayColor.charAt(0).toUpperCase() + displayColor.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleRow(ticket.id, grNo);
-                        }}
-                        className="text-indigo-600 hover:text-indigo-900 transition-colors"
-                      >
-                        {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                      </button>
-                    </td>
-                  </tr>
-
-                  {isExpanded && grNo && (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-4 bg-indigo-50">
-                        <h4 className="text-sm font-semibold text-indigo-900 mb-3">
-                          Latest Booking Timeline for GR {grNo}
-                        </h4>
-                        {isLoadingTimeline ? (
-                          <p className="text-gray-600 text-sm">Loading timeline...</p>
-                        ) : timeline.length > 0 ? (
-                          <div className="space-y-4 max-h-64 overflow-y-auto pr-4">
-                            {timeline.map((activity: any, index: number) => (
-                              <div key={index} className="border-l-4 border-indigo-500 pl-4 relative">
-                                <div className="absolute -left-2 top-1.5 w-4 h-4 bg-indigo-500 rounded-full border-2 border-white shadow" />
-                                <p className="font-medium text-indigo-900 text-sm">{activity.activity}</p>
-                                <p className="text-xs text-gray-600">{activity.date}</p>
-                                <p className="text-xs text-gray-700 mt-1">{activity.details}</p>
-                                {activity.documentno && (
-                                  <p className="text-xs text-indigo-600 mt-1">Document: {activity.documentno}</p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-gray-600 text-sm italic">No timeline activities available</p>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </>
+                <TimelineRow
+                  key={ticket.id}
+                  ticket={ticket}
+                  isExpanded={isExpanded}
+                  toggleRow={toggleRow}
+                  timeline={timeline}
+                  isLoadingTimeline={isLoadingTimeline}
+                  onTicketClick={onTicketClick}
+                />
               );
             })}
           </tbody>
@@ -431,11 +537,11 @@ export function TicketList({ onTicketClick }: TicketListProps) {
 
       {/* Mobile Cards */}
       <div className="md:hidden divide-y divide-gray-200">
-        {currentTickets.map((ticket) => {
+        {state.tickets.map((ticket) => {
           const isExpanded = expandedRows.has(ticket.id);
           const grNo = ticket.tracking_number ?? undefined;
           const timeline = grNo ? timelines[grNo] || [] : [];
-          const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
+          const isLoadingTimeline = grNo ? timelineLoading[grNo] : false;
           const delayedHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
           const bookingTime = ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : 'N/A';
           const displayColor = getColor(ticket);
@@ -491,7 +597,10 @@ export function TicketList({ onTicketClick }: TicketListProps) {
                     Latest Booking Timeline for GR {grNo}
                   </h4>
                   {isLoadingTimeline ? (
-                    <p className="text-gray-600 text-sm">Loading...</p>
+                    <div className="flex items-center gap-2 text-gray-600 text-sm">
+                      <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                      Loading...
+                    </div>
                   ) : timeline.length > 0 ? (
                     <div className="space-y-4">
                       {timeline.map((activity: any, index: number) => (
@@ -516,26 +625,28 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         })}
       </div>
 
-      {totalItems > 0 && (
+      {state.totalCount > 0 && (
         <div className="px-6 py-4 bg-white border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-sm text-gray-700 order-2 sm:order-1">
-            Showing <span className="font-medium">{startIndex + 1}</span> to{" "}
-            <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{" "}
-            <span className="font-medium">{totalItems}</span> tickets
+            Showing <span className="font-medium">{((currentPage - 1) * ITEMS_PER_PAGE) + 1}</span> to{" "}
+            <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, state.totalCount)}</span> of{" "}
+            <span className="font-medium">{state.totalCount}</span> tickets
           </div>
           <div className="flex items-center gap-2 order-1 sm:order-2">
             <button
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage === 1}
               className="p-2 rounded-lg border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+              aria-label="Previous page"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <span className="text-sm font-medium">Page {currentPage} of {totalPages || 1}</span>
+            <span className="text-sm font-medium">Page {currentPage} of {totalPages}</span>
             <button
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage === totalPages}
               className="p-2 rounded-lg border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+              aria-label="Next page"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -543,7 +654,7 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         </div>
       )}
 
-      {filteredTickets.length === 0 && !loading && (
+      {state.tickets.length === 0 && !state.loading && (
         <div className="text-center py-12">
           <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-500">No tickets found</p>
