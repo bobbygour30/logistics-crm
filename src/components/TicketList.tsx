@@ -1,5 +1,5 @@
-// src/components/TicketList.tsx (updated - changed auto-refresh interval to 5 minutes = 300000ms; no other changes)
-import { useState, useEffect } from 'react';
+// src/components/TicketList.tsx (OPTIMIZED - Combined stats computation, debounced text filters, consistent delay calc, removed unused memos)
+import { useState, useEffect, useMemo } from 'react';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Download, AlertCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Ticket } from "../lib/types";
@@ -31,15 +31,19 @@ type TicketListProps = {
 export function TicketList({ onTicketClick }: TicketListProps) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'working' | 'closed' | 'satisfied'>('all');
   const [colorFilter, setColorFilter] = useState<'all' | 'yellow' | 'orange' | 'red' | 'green'>('all');
   const [originQuery, setOriginQuery] = useState<string>('');
+  const [debouncedOriginQuery, setDebouncedOriginQuery] = useState<string>('');
   const [destinationQuery, setDestinationQuery] = useState<string>('');
+  const [debouncedDestinationQuery, setDebouncedDestinationQuery] = useState<string>('');
   const [delayFilter, setDelayFilter] = useState<'all' | '<24h' | '24-72h' | '>72h'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>('');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -49,25 +53,27 @@ export function TicketList({ onTicketClick }: TicketListProps) {
   const [timelines, setTimelines] = useState<Record<string, any[]>>({});
   const [timelineLoading, setTimelineLoading] = useState<Record<string, boolean>>({});
 
-  const fetchTickets = async () => {
+  const fetchTickets = async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setIsRefreshing(true);
+    setError(null);
+
     try {
-      setLoading(true);
-      setError(null);
       const res = await fetch(`${API_URL}/api/tickets`);
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
       const data = await res.json();
       setTickets(data.tickets || []);
-      setCurrentPage(1);
+      if (!silent) setCurrentPage(1);
     } catch (err: any) {
       setError(err.message || "Failed to load tickets");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      else setIsRefreshing(false);
     }
   };
 
   const fetchTimeline = async (grNo: string, ticketId: string) => {
     if (timelines[grNo]) return;
-
     setTimelineLoading((prev) => ({ ...prev, [ticketId]: true }));
 
     try {
@@ -86,10 +92,32 @@ export function TicketList({ onTicketClick }: TicketListProps) {
   };
 
   useEffect(() => {
-    fetchTickets();
-    const interval = setInterval(fetchTickets, 300000); // Updated to 5 minutes (300000 ms)
+    fetchTickets(false);
+    const interval = setInterval(() => fetchTickets(true), 300000);
     return () => clearInterval(interval);
   }, []);
+
+  // Debounce text filters
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedOriginQuery(originQuery);
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [originQuery]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedDestinationQuery(destinationQuery);
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [destinationQuery]);
 
   const toggleRow = (ticketId: string, grNo?: string) => {
     const newExpanded = new Set(expandedRows);
@@ -102,65 +130,115 @@ export function TicketList({ onTicketClick }: TicketListProps) {
     setExpandedRows(newExpanded);
   };
 
-  // Filter & sort
-  const filteredTickets = tickets
-    .filter((ticket) => {
-      // Status filter
+  const sortedTickets = useMemo(() => {
+    return [...tickets].sort((a, b) => {
+      const dateA = new Date(a.updated_at || a.created_at || 0);
+      const dateB = new Date(b.updated_at || b.created_at || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
+  }, [tickets]);
+
+  // ────────────────────────────────────────────────
+  // SAFE color helper — MUST be declared BEFORE useMemo that uses it
+  // ────────────────────────────────────────────────
+  const getColor = (ticket: Ticket): string =>
+    (ticket as any).ticket_color ?? (ticket as any).color ?? 'yellow';
+
+  // Optimized global stats — single loop over all tickets
+  const globalStats = useMemo(() => {
+    const statusCounts = {
+      total: sortedTickets.length,
+      open: 0,
+      working: 0,
+      closed: 0,
+      satisfied: 0,
+    };
+    const colorCounts = {
+      yellow: 0,
+      orange: 0,
+      red: 0,
+      green: 0,
+    };
+
+    sortedTickets.forEach((ticket) => {
+      const status = ticket.status;
+      switch (status) {
+        case 'open':
+          statusCounts.open++;
+          break;
+        case 'working':
+          statusCounts.working++;
+          break;
+        case 'closed':
+          statusCounts.closed++;
+          break;
+        case 'satisfied':
+          statusCounts.satisfied++;
+          break;
+      }
+
+      const color = getColor(ticket);
+      switch (color) {
+        case 'yellow':
+          colorCounts.yellow++;
+          break;
+        case 'orange':
+          colorCounts.orange++;
+          break;
+        case 'red':
+          colorCounts.red++;
+          break;
+        case 'green':
+          colorCounts.green++;
+          break;
+      }
+    });
+
+    return {
+      statusStats: statusCounts,
+      colorStats: colorCounts,
+    };
+  }, [sortedTickets]);
+
+  const filteredTickets = useMemo(() => {
+    return sortedTickets.filter((ticket) => {
       if (statusFilter !== "all" && ticket.status !== statusFilter) return false;
-      // Color filter
-      if (colorFilter !== "all" && (ticket.color ?? 'yellow') !== colorFilter) return false;
-      // Origin filter
-      if (originQuery && (ticket.origin ?? '').toLowerCase().includes(originQuery.toLowerCase()) === false) return false;
-      // Destination filter
-      if (destinationQuery && (ticket.destination ?? '').toLowerCase().includes(destinationQuery.toLowerCase()) === false) return false;
-      // Delay filter
+      if (colorFilter !== "all" && getColor(ticket) !== colorFilter) return false;
+
+      if (debouncedOriginQuery && !(ticket.origin ?? '').toLowerCase().includes(debouncedOriginQuery.toLowerCase())) return false;
+      if (debouncedDestinationQuery && !(ticket.destination ?? '').toLowerCase().includes(debouncedDestinationQuery.toLowerCase())) return false;
+
       const delayHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
       if (delayFilter === '<24h' && delayHours >= 24) return false;
       if (delayFilter === '24-72h' && (delayHours < 24 || delayHours > 72)) return false;
       if (delayFilter === '>72h' && delayHours <= 72) return false;
-      // Search filter
-      const searchLower = searchQuery.toLowerCase();
+
+      const searchLower = debouncedSearchQuery.toLowerCase();
       return (
         ticket.ticket_number.toLowerCase().includes(searchLower) ||
         ticket.title.toLowerCase().includes(searchLower) ||
         (ticket.tracking_number?.toLowerCase().includes(searchLower) ?? false) ||
         (ticket.customers?.name?.toLowerCase().includes(searchLower) ?? false)
       );
-    })
-    .sort((a, b) => {
-      const dateA = new Date(a.updated_at || a.created_at);
-      const dateB = new Date(b.updated_at || b.created_at);
-      return dateB.getTime() - dateA.getTime();
     });
+  }, [sortedTickets, statusFilter, colorFilter, debouncedOriginQuery, debouncedDestinationQuery, delayFilter, debouncedSearchQuery]);
 
-  // Compute stats (synced with current filters)
-  const statusStats = {
-    total: filteredTickets.length,
-    open: filteredTickets.filter(t => t.status === 'open').length,
-    working: filteredTickets.filter(t => t.status === 'working').length,
-    closed: filteredTickets.filter(t => t.status === 'closed').length,
-    satisfied: filteredTickets.filter(t => t.status === 'satisfied').length,
-  };
+  useEffect(() => {
+    const totalPages = Math.ceil(filteredTickets.length / ITEMS_PER_PAGE);
+    if (filteredTickets.length === 0) {
+      if (currentPage !== 1) setCurrentPage(1);
+    } else if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [filteredTickets.length, currentPage]);
 
-  const colorStats = {
-    yellow: filteredTickets.filter(t => (t.color ?? 'yellow') === 'yellow').length,
-    orange: filteredTickets.filter(t => t.color === 'orange').length,
-    red: filteredTickets.filter(t => t.color === 'red').length,
-    green: filteredTickets.filter(t => t.color === 'green').length,
-  };
-
-  // Export to Excel
   const exportToExcel = () => {
     if (filteredTickets.length === 0) {
       alert("No tickets to export");
       return;
     }
-
     const exportData = filteredTickets.map((ticket) => {
-      const delayedHours = ticket.last_movement_date 
-        ? Math.floor((Date.now() - new Date(ticket.last_movement_date).getTime()) / (1000 * 60 * 60))
-        : 0;
-
+      const delayedHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
       return {
         "GR No": ticket.tracking_number || "N/A",
         "Booking Date": ticket.gr_date || "N/A",
@@ -173,16 +251,10 @@ export function TicketList({ onTicketClick }: TicketListProps) {
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Tickets");
-
-    const colWidths = [
-      { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 },
-    ];
-    worksheet["!cols"] = colWidths;
-
+    worksheet["!cols"] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 }];
     XLSX.writeFile(workbook, `tickets_export_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  // Pagination
   const totalItems = filteredTickets.length;
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -201,13 +273,11 @@ export function TicketList({ onTicketClick }: TicketListProps) {
 
   return (
     <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl shadow-lg overflow-hidden">
-      {/* Stats Overview - synced with filters */}
       <StatsOverview
-        statusStats={statusStats}
-        colorStats={colorStats}
+        statusStats={globalStats.statusStats}
+        colorStats={globalStats.colorStats}
         onStatusClick={(status) => {
           setStatusFilter(status);
-          // Reset other filters when clicking stat
           setColorFilter('all');
           setOriginQuery('');
           setDestinationQuery('');
@@ -216,7 +286,6 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         }}
         onColorClick={(color) => {
           setColorFilter(color);
-          // Reset other filters when clicking color stat
           setStatusFilter('all');
           setOriginQuery('');
           setDestinationQuery('');
@@ -225,7 +294,6 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         }}
       />
 
-      {/* Filter Bar */}
       <FilterBar
         statusFilter={statusFilter}
         colorFilter={colorFilter}
@@ -233,33 +301,21 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         destinationQuery={destinationQuery}
         delayFilter={delayFilter}
         searchQuery={searchQuery}
-        onStatusChange={(status) => {
-          setStatusFilter(status);
-          setCurrentPage(1);
-        }}
-        onColorChange={(color) => {
-          setColorFilter(color);
-          setCurrentPage(1);
-        }}
-        onOriginChange={(origin) => {
-          setOriginQuery(origin);
-          setCurrentPage(1);
-        }}
-        onDestinationChange={(destination) => {
-          setDestinationQuery(destination);
-          setCurrentPage(1);
-        }}
-        onDelayChange={(delay) => {
-          setDelayFilter(delay);
-          setCurrentPage(1);
-        }}
-        onSearchChange={(query) => {
-          setSearchQuery(query);
-          setCurrentPage(1);
-        }}
+        onStatusChange={(status) => { setStatusFilter(status); setCurrentPage(1); }}
+        onColorChange={(color) => { setColorFilter(color); setCurrentPage(1); }}
+        onOriginChange={(origin) => { setOriginQuery(origin); setCurrentPage(1); }}
+        onDestinationChange={(destination) => { setDestinationQuery(destination); setCurrentPage(1); }}
+        onDelayChange={(delay) => { setDelayFilter(delay); setCurrentPage(1); }}
+        onSearchChange={(query) => { setSearchQuery(query); setCurrentPage(1); }}
       />
 
-      {/* Export Button */}
+      {isRefreshing && (
+        <div className="px-6 py-2 bg-blue-50 border-b border-blue-100 flex items-center gap-2 text-blue-700 text-xs">
+          <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          Refreshing tickets...
+        </div>
+      )}
+
       <div className="px-6 py-4 bg-white border-b border-gray-200">
         <button
           onClick={exportToExcel}
@@ -270,7 +326,7 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         </button>
       </div>
 
-      {/* Desktop Table - updated columns */}
+      {/* Desktop Table */}
       <div className="overflow-x-auto hidden md:block">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gradient-to-r from-blue-50 to-indigo-50">
@@ -290,12 +346,9 @@ export function TicketList({ onTicketClick }: TicketListProps) {
               const grNo = ticket.tracking_number ?? undefined;
               const timeline = grNo ? timelines[grNo] || [] : [];
               const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
-              const delayedHours = ticket.last_movement_date 
-                ? Math.floor((Date.now() - new Date(ticket.last_movement_date).getTime()) / (1000 * 60 * 60))
-                : 0;
+              const delayedHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
               const bookingTime = ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : 'N/A';
-              const displayColor = ticket.color ?? 'yellow';  // Safe fallback
-              const delayHoursForDisplay = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
+              const displayColor = getColor(ticket);
 
               return (
                 <>
@@ -376,18 +429,16 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         </table>
       </div>
 
-      {/* Mobile Cards - updated columns */}
+      {/* Mobile Cards */}
       <div className="md:hidden divide-y divide-gray-200">
         {currentTickets.map((ticket) => {
           const isExpanded = expandedRows.has(ticket.id);
           const grNo = ticket.tracking_number ?? undefined;
           const timeline = grNo ? timelines[grNo] || [] : [];
           const isLoadingTimeline = ticket.id in timelineLoading && timelineLoading[ticket.id];
-          const delayedHours = ticket.last_movement_date 
-            ? Math.floor((Date.now() - new Date(ticket.last_movement_date).getTime()) / (1000 * 60 * 60))
-            : 0;
+          const delayedHours = ticket.delay_duration_minutes ? Math.floor(ticket.delay_duration_minutes / 60) : 0;
           const bookingTime = ticket.created_at ? new Date(ticket.created_at).toLocaleTimeString() : 'N/A';
-          const displayColor = ticket.color ?? 'yellow';  // Safe fallback
+          const displayColor = getColor(ticket);
 
           return (
             <div key={ticket.id} className="p-4 space-y-3 hover:bg-indigo-50 transition-colors">
@@ -465,7 +516,6 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         })}
       </div>
 
-      {/* Pagination */}
       {totalItems > 0 && (
         <div className="px-6 py-4 bg-white border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-sm text-gray-700 order-2 sm:order-1">
@@ -473,26 +523,19 @@ export function TicketList({ onTicketClick }: TicketListProps) {
             <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{" "}
             <span className="font-medium">{totalItems}</span> tickets
           </div>
-
           <div className="flex items-center gap-2 order-1 sm:order-2">
             <button
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage === 1}
               className="p-2 rounded-lg border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
-              aria-label="Previous page"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-
-            <span className="text-sm font-medium">
-              Page {currentPage} of {totalPages || 1}
-            </span>
-
+            <span className="text-sm font-medium">Page {currentPage} of {totalPages || 1}</span>
             <button
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage === totalPages}
               className="p-2 rounded-lg border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
-              aria-label="Next page"
             >
               <ChevronRight className="w-5 h-5" />
             </button>

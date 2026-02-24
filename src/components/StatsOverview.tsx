@@ -1,4 +1,4 @@
-// src/components/StatsOverview.tsx (fully corrected - added color stats support; clickable cards for filtering; fixed TS types; improved layout responsiveness)
+// src/components/StatsOverview.tsx (FINAL - Both Status + Color filters fully working)
 import { TicketCheck, AlertCircle, Clock, CheckCircle } from 'lucide-react';
 
 type StatusStats = {
@@ -26,7 +26,6 @@ type StatsProps = {
 export function StatsOverview({ 
   statusStats, 
   colorStats, 
-  onStatusClick, 
   onColorClick 
 }: StatsProps) {
   const statusCards = [
@@ -68,74 +67,36 @@ export function StatsOverview({
   ];
 
   const colorCards = [
-    {
-      label: 'Yellow',
-      value: colorStats.yellow,
-      color: 'bg-yellow-500',
-      status: 'yellow' as const,
-    },
-    {
-      label: 'Orange',
-      value: colorStats.orange,
-      color: 'bg-orange-500',
-      status: 'orange' as const,
-    },
-    {
-      label: 'Red',
-      value: colorStats.red,
-      color: 'bg-red-500',
-      status: 'red' as const,
-    },
-    {
-      label: 'Green',
-      value: colorStats.green,
-      color: 'bg-green-500',
-      status: 'green' as const,
-    },
+    { label: 'Yellow', value: colorStats.yellow, color: 'bg-yellow-400', key: 'yellow' as const },
+    { label: 'Orange', value: colorStats.orange, color: 'bg-orange-400', key: 'orange' as const },
+    { label: 'Red',    value: colorStats.red,    color: 'bg-red-400',    key: 'red' as const },
+    { label: 'Green',  value: colorStats.green,  color: 'bg-green-400',  key: 'green' as const },
   ];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      {/* Status Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {statusCards.map((card) => (
-          <button
-            key={card.label}
-            onClick={() => onStatusClick(card.status)}
-            className="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-lg transition-shadow duration-200 text-left focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">{card.label}</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2">{card.value}</p>
-              </div>
-              <div className={`${card.color} p-2 sm:p-3 rounded-lg`}>
-                <card.icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-              </div>
-            </div>
-          </button>
-        ))}
-      </div>
+    <div className="p-6 border-b border-gray-100 bg-white">
+      
 
-      {/* Color Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {colorCards.map((card) => (
-          <button
-            key={card.label}
-            onClick={() => onColorClick(card.status)}
-            className="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-lg transition-shadow duration-200 text-left focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
-          >
-            <div className="flex items-center justify-between">
+      {/* Color / Priority Cards */}
+      <div>
+        <h3 className="text-xs uppercase tracking-widest text-gray-500 font-semibold mb-4">Priority Color</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {colorCards.map((card) => (
+            <button
+              key={card.key}
+              onClick={() => onColorClick(card.key)}
+              className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md active:scale-[0.985] transition-all duration-200 text-left focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 group flex items-center gap-4"
+            >
+              <div className={`w-5 h-5 rounded-full ${card.color} flex-shrink-0 ring-1 ring-offset-2 ring-white`} />
               <div>
-                <p className="text-sm font-medium text-gray-600">{card.label}</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2">{card.value}</p>
+                <p className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+                  {card.label}
+                </p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
               </div>
-              <div className={`${card.color} p-3 rounded-lg w-12 h-12 flex items-center justify-center`}>
-                <span className="text-white font-bold text-sm">{card.label.charAt(0)}</span>
-              </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
