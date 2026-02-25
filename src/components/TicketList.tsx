@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Download,
   AlertCircle,
+  Calendar,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Ticket } from "../lib/types";
@@ -212,6 +213,14 @@ export function TicketList({ onTicketClick }: TicketListProps) {
   const [delayFilter, setDelayFilter] = useState<'all' | '<24h' | '24-72h' | '>72h'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  
+  // Date filter
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'last7days' | 'last30days' | 'custom'>('all');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [debouncedDateFilter, setDebouncedDateFilter] = useState<'all' | 'today' | 'yesterday' | 'last7days' | 'last30days' | 'custom'>('all');
+  const [debouncedCustomStartDate, setDebouncedCustomStartDate] = useState<string>('');
+  const [debouncedCustomEndDate, setDebouncedCustomEndDate] = useState<string>('');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -290,9 +299,30 @@ export function TicketList({ onTicketClick }: TicketListProps) {
     if (debouncedDestination) params.append('destination', debouncedDestination);
     if (delayFilter !== 'all') params.append('delay', delayFilter);
     if (debouncedSearch) params.append('search', debouncedSearch);
+    
+    // Date filter
+    if (debouncedDateFilter !== 'all') {
+      params.append('dateFilter', debouncedDateFilter);
+      
+      if (debouncedDateFilter === 'custom' && debouncedCustomStartDate && debouncedCustomEndDate) {
+        params.append('startDate', debouncedCustomStartDate);
+        params.append('endDate', debouncedCustomEndDate);
+      }
+    }
 
     return params;
-  }, [currentPage, statusFilter, colorFilter, debouncedOrigin, debouncedDestination, delayFilter, debouncedSearch]);
+  }, [
+    currentPage, 
+    statusFilter, 
+    colorFilter, 
+    debouncedOrigin, 
+    debouncedDestination, 
+    delayFilter, 
+    debouncedSearch,
+    debouncedDateFilter,
+    debouncedCustomStartDate,
+    debouncedCustomEndDate
+  ]);
 
   // Fetch tickets with pagination
   const fetchTickets = useCallback(async (silent = false) => {
@@ -339,10 +369,30 @@ export function TicketList({ onTicketClick }: TicketListProps) {
     return () => clearTimeout(timer);
   }, [destinationQuery]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedDateFilter(dateFilter);
+      setDebouncedCustomStartDate(customStartDate);
+      setDebouncedCustomEndDate(customEndDate);
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [dateFilter, customStartDate, customEndDate]);
+
   // Fetch when filters or pagination change
   useEffect(() => {
     fetchTickets(false);
-  }, [currentPage, statusFilter, colorFilter, debouncedOrigin, debouncedDestination, delayFilter, debouncedSearch]);
+  }, [
+    currentPage, 
+    statusFilter, 
+    colorFilter, 
+    debouncedOrigin, 
+    debouncedDestination, 
+    delayFilter, 
+    debouncedSearch,
+    debouncedDateFilter,
+    debouncedCustomStartDate,
+    debouncedCustomEndDate
+  ]);
 
   // Background refresh
   useEffect(() => {
@@ -354,7 +404,17 @@ export function TicketList({ onTicketClick }: TicketListProps) {
   useEffect(() => {
     setCurrentPage(1);
     setExpandedRows(new Set());
-  }, [statusFilter, colorFilter, debouncedOrigin, debouncedDestination, delayFilter, debouncedSearch]);
+  }, [
+    statusFilter, 
+    colorFilter, 
+    debouncedOrigin, 
+    debouncedDestination, 
+    delayFilter, 
+    debouncedSearch,
+    debouncedDateFilter,
+    debouncedCustomStartDate,
+    debouncedCustomEndDate
+  ]);
 
   const toggleRow = useCallback(
     (ticketId: string, grNo?: string) => {
@@ -458,6 +518,9 @@ export function TicketList({ onTicketClick }: TicketListProps) {
     setDestinationQuery('');
     setDelayFilter('all');
     setSearchQuery('');
+    setDateFilter('all');
+    setCustomStartDate('');
+    setCustomEndDate('');
   }}
 />
       )}
@@ -477,6 +540,72 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         onSearchChange={setSearchQuery}
       />
 
+      {/* Date Filter Section */}
+      <div className="px-6 py-4 bg-white border-b border-gray-200">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">Date Filter:</span>
+          </div>
+          
+          <select
+            value={dateFilter}
+            onChange={(e) => {
+              setDateFilter(e.target.value as any);
+              setCurrentPage(1);
+            }}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          >
+            <option value="all">All Dates</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last7days">Last 7 Days</option>
+            <option value="last30days">Last 30 Days</option>
+            <option value="custom">Custom Range</option>
+          </select>
+
+          {dateFilter === 'custom' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => {
+                  setCustomStartDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                placeholder="Start Date"
+              />
+              <span className="text-gray-500">to</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => {
+                  setCustomEndDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                placeholder="End Date"
+              />
+            </div>
+          )}
+
+          {(dateFilter !== 'all' || customStartDate || customEndDate) && (
+            <button
+              onClick={() => {
+                setDateFilter('all');
+                setCustomStartDate('');
+                setCustomEndDate('');
+                setCurrentPage(1);
+              }}
+              className="text-sm text-red-600 hover:text-red-800"
+            >
+              Clear Date Filter
+            </button>
+          )}
+        </div>
+      </div>
+
       {isRefreshing && (
         <div className="px-6 py-2 bg-blue-50 border-b border-blue-100 flex items-center gap-2 text-blue-700 text-xs">
           <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -495,7 +624,7 @@ export function TicketList({ onTicketClick }: TicketListProps) {
         </button>
         
         <div className="text-sm text-gray-600">
-          Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, state.totalCount)} of {state.totalCount}
+          Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, state.totalCount)} of {state.totalCount} tickets
         </div>
       </div>
 

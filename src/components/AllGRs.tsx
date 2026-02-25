@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Clock, AlertTriangle, CheckCircle, Truck, Calendar, ChevronLeft, ChevronRight , Loader2} from 'lucide-react';
+import { Search, Clock, AlertTriangle, CheckCircle, Truck, Calendar, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -29,6 +29,14 @@ export function AllGRs() {
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [filterNew, setFilterNew] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  
+  // Date filter
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'last7days' | 'last30days' | 'custom'>('all');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [debouncedDateFilter, setDebouncedDateFilter] = useState<'all' | 'today' | 'yesterday' | 'last7days' | 'last30days' | 'custom'>('all');
+  const [debouncedCustomStartDate, setDebouncedCustomStartDate] = useState<string>('');
+  const [debouncedCustomEndDate, setDebouncedCustomEndDate] = useState<string>('');
 
   // Debounce search
   useEffect(() => {
@@ -38,6 +46,17 @@ export function AllGRs() {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Debounce date filters
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedDateFilter(dateFilter);
+      setDebouncedCustomStartDate(customStartDate);
+      setDebouncedCustomEndDate(customEndDate);
+      setCurrentPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [dateFilter, customStartDate, customEndDate]);
 
   const fetchConsignments = useCallback(async () => {
     try {
@@ -57,6 +76,16 @@ export function AllGRs() {
         params.append('new', 'true');
       }
       
+      // Add date filters
+      if (debouncedDateFilter !== 'all') {
+        params.append('dateFilter', debouncedDateFilter);
+        
+        if (debouncedDateFilter === 'custom' && debouncedCustomStartDate && debouncedCustomEndDate) {
+          params.append('startDate', debouncedCustomStartDate);
+          params.append('endDate', debouncedCustomEndDate);
+        }
+      }
+      
       const res = await fetch(`${API_URL}/api/consignments?${params}`);
       if (!res.ok) throw new Error(`Failed to fetch GRs: ${res.status}`);
       const data = await res.json();
@@ -69,7 +98,7 @@ export function AllGRs() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, debouncedSearch, filterNew]);
+  }, [currentPage, debouncedSearch, filterNew, debouncedDateFilter, debouncedCustomStartDate, debouncedCustomEndDate]);
 
   useEffect(() => {
     fetchConsignments();
@@ -96,6 +125,16 @@ export function AllGRs() {
       
       if (filterNew) {
         params.append('new', 'true');
+      }
+      
+      // Add date filters to export
+      if (debouncedDateFilter !== 'all') {
+        params.append('dateFilter', debouncedDateFilter);
+        
+        if (debouncedDateFilter === 'custom' && debouncedCustomStartDate && debouncedCustomEndDate) {
+          params.append('startDate', debouncedCustomStartDate);
+          params.append('endDate', debouncedCustomEndDate);
+        }
       }
       
       const res = await fetch(`${API_URL}/api/consignments?${params}`);
@@ -186,41 +225,109 @@ export function AllGRs() {
       <div className="space-y-6">
         {/* Filters */}
         <div className="bg-white rounded-xl shadow p-4">
-          <div className="flex flex-col md:flex-row gap-4 items-center">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search by GR No, status, origin, destination, or consignee..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+          <div className="flex flex-col gap-4">
+            {/* Search Row */}
+            <div className="flex flex-col md:flex-row gap-4 items-center">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
-                  type="checkbox"
-                  checked={filterNew}
-                  onChange={(e) => {
-                    setFilterNew(e.target.checked);
+                  type="text"
+                  placeholder="Search by GR No, status, origin, destination, or consignee..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={filterNew}
+                    onChange={(e) => {
+                      setFilterNew(e.target.checked);
+                      setCurrentPage(1);
+                    }}
+                    className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded"
+                  />
+                  <Clock className="w-4 h-4 text-amber-600" />
+                  New (24h)
+                </label>
+                <button
+                  onClick={exportToExcel}
+                  disabled={totalCount === 0 || loading}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 min-w-[140px] justify-center"
+                >
+                  <Download className="w-4 h-4" />
+                  Export Excel
+                </button>
+              </div>
+            </div>
+
+            {/* Date Filter Row */}
+            <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-gray-100">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700">Date Filter:</span>
+              </div>
+              
+              <select
+                value={dateFilter}
+                onChange={(e) => {
+                  setDateFilter(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+              >
+                <option value="all">All Dates</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="last7days">Last 7 Days</option>
+                <option value="last30days">Last 30 Days</option>
+                <option value="custom">Custom Range</option>
+              </select>
+
+              {dateFilter === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => {
+                      setCustomStartDate(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    placeholder="Start Date"
+                  />
+                  <span className="text-gray-500">to</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => {
+                      setCustomEndDate(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    placeholder="End Date"
+                  />
+                </div>
+              )}
+
+              {(dateFilter !== 'all' || customStartDate || customEndDate) && (
+                <button
+                  onClick={() => {
+                    setDateFilter('all');
+                    setCustomStartDate('');
+                    setCustomEndDate('');
                     setCurrentPage(1);
                   }}
-                  className="h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded"
-                />
-                <Clock className="w-4 h-4 text-amber-600" />
-                Newly Added (Last 24h)
-              </label>
-              <button
-                onClick={exportToExcel}
-                disabled={totalCount === 0 || loading}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 min-w-[140px] justify-center"
-              >
-                <Download className="w-4 h-4" />
-                Export Excel
-              </button>
+                  className="text-sm text-red-600 hover:text-red-800"
+                >
+                  Clear Date Filter
+                </button>
+              )}
             </div>
           </div>
+
           {loading && (
             <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="animate-spin w-4 h-4" />

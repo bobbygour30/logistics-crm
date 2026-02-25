@@ -31,10 +31,10 @@ export function StatsOverview({
   // You can use them elsewhere if needed
 
   const colorCards = [
-    { label: 'Yellow', value: colorStats.yellow, color: 'bg-yellow-400', key: 'yellow' as const },
-    { label: 'Orange', value: colorStats.orange, color: 'bg-orange-400', key: 'orange' as const },
-    { label: 'Red',    value: colorStats.red,    color: 'bg-red-400',    key: 'red' as const },
-    { label: 'Green',  value: colorStats.green,  color: 'bg-green-400',  key: 'green' as const },
+    { label: 'In Transit', value: colorStats.yellow, color: 'bg-yellow-400', key: 'yellow' as const },
+    { label: 'Medium Priority', value: colorStats.orange, color: 'bg-orange-400', key: 'orange' as const },
+    { label: 'High Priority',    value: colorStats.red,    color: 'bg-red-400',    key: 'red' as const },
+    { label: 'Satisfied',  value: colorStats.green,  color: 'bg-green-400',  key: 'green' as const },
   ];
 
   return (
@@ -51,7 +51,7 @@ export function StatsOverview({
             <div className="w-5 h-5 rounded-full bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 flex-shrink-0 ring-1 ring-offset-2 ring-white" />
             <div>
               <p className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                All Colors
+                All Shipments
               </p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{colorStats.yellow + colorStats.orange + colorStats.red + colorStats.green}</p>
             </div>
